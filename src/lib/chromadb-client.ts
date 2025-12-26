@@ -1,43 +1,32 @@
-import { env } from 'cloudflare:workers';
-import { ChromaClient } from 'chromadb';
 import { CloudflareWorkerAIEmbeddingFunction } from '@chroma-core/cloudflare-worker-ai';
+import { CloudClient } from 'chromadb';
+import { env } from 'cloudflare:workers';
 
 import type { LogoDescription } from './logo-describer';
 
 const COLLECTION_NAME = 'logos';
-
-let clientInstance: ChromaClient | null = null;
-let embeddingFunction: CloudflareWorkerAIEmbeddingFunction | null = null;
+const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
 
 /**
- * Get or create the ChromaDB client instance.
+ * Create ChromaDB Cloud client.
  */
-function getClient(): ChromaClient {
-  if (!clientInstance) {
-    clientInstance = new ChromaClient({
-      path: 'https://api.trychroma.com',
-      auth: {
-        provider: 'token',
-        credentials: env.CHROMA_API_TOKEN,
-      },
-      tenant: env.CHROMA_TENANT,
-      database: env.CHROMA_DATABASE,
-    });
-  }
-  return clientInstance;
+function createChromaClient(): CloudClient {
+  return new CloudClient({
+    tenant: env.CHROMA_TENANT,
+    database: env.CHROMA_DATABASE,
+    apiKey: env.CHROMA_API_TOKEN,
+  });
 }
 
 /**
- * Get the Cloudflare Worker AI embedding function.
+ * Create embedding function using Cloudflare Workers AI.
  */
-function getEmbeddingFunction(): CloudflareWorkerAIEmbeddingFunction {
-  if (!embeddingFunction) {
-    embeddingFunction = new CloudflareWorkerAIEmbeddingFunction({
-      ai: env.AI,
-      model: '@cf/baai/bge-base-en-v1.5',
-    });
-  }
-  return embeddingFunction;
+function createEmbeddingFunction(): CloudflareWorkerAIEmbeddingFunction {
+  return new CloudflareWorkerAIEmbeddingFunction({
+    apiKey: env.CLOUDFLARE_API_TOKEN,
+    accountId: env.CLOUDFLARE_ACCOUNT_ID,
+    modelName: EMBEDDING_MODEL,
+  });
 }
 
 export type LogoEmbeddingMetadata = {
@@ -63,12 +52,12 @@ export async function storeLogoEmbedding(
   sourceUrl: string,
   description: LogoDescription
 ): Promise<void> {
-  const client = getClient();
-  const ef = getEmbeddingFunction();
+  const client = createChromaClient();
+  const embeddingFunction = createEmbeddingFunction();
 
   const collection = await client.getOrCreateCollection({
     name: COLLECTION_NAME,
-    embeddingFunction: ef,
+    embeddingFunction,
   });
 
   // Create a rich text representation for embedding
@@ -119,12 +108,12 @@ export async function searchLogos(
     distance: number;
   }>
 > {
-  const client = getClient();
-  const ef = getEmbeddingFunction();
+  const client = createChromaClient();
+  const embeddingFunction = createEmbeddingFunction();
 
   const collection = await client.getOrCreateCollection({
     name: COLLECTION_NAME,
-    embeddingFunction: ef,
+    embeddingFunction,
   });
 
   const results = await collection.query({
@@ -132,7 +121,7 @@ export async function searchLogos(
     nResults: limit,
   });
 
-  if (!results.ids[0]) {
+  if (!results.ids[0] || results.ids[0].length === 0) {
     return [];
   }
 
