@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { Container } from '@cloudflare/containers';
 import { realtimeRoute } from 'rwsdk/realtime/worker';
 import { layout, prefix, render, route } from 'rwsdk/router';
 import { defineApp, type RequestInfo } from 'rwsdk/worker';
@@ -13,11 +14,18 @@ import { setCommonHeaders } from '@/app/headers';
 import { Home } from '@/app/pages/Home';
 import { Login } from '@/app/pages/Login';
 import { Settings } from '@/app/pages/Settings';
+import { Generator } from '@/app/pages/Generator';
 import type { Session, User } from '@/lib/auth';
 import { createAuth } from '@/lib/auth';
 
 export { Database } from '@/db/centralDbDurableObject';
 export { RealtimeDurableObject } from 'rwsdk/realtime/durableObject';
+
+// Logo generation container
+export class LogoAgentContainer extends Container<Env> {
+  defaultPort = 8000;
+  sleepAfter = '5m';
+}
 
 export type AppContext = {
   session: Session | null;
@@ -66,6 +74,7 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
     route('/', Home),
     route('/login', Login),
     prefix('/settings', [layout(AppLayout, [route('/', Settings)])]),
+    prefix('/generator', [layout(AppLayout, [route('/', Generator)])]),
   ]),
 ]);
 

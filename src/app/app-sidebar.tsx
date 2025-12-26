@@ -6,6 +6,7 @@ import {
   HouseSimpleIcon,
   MoonIcon,
   SignOutIcon,
+  SparkleIcon,
   SunIcon,
 } from '@phosphor-icons/react';
 import { useState, useEffect, createContext, useContext } from 'react';
@@ -203,7 +204,10 @@ export function AppSidebar({
     await fetch(`/sidebar/set/${value}`, { method: 'POST' });
   };
 
-  const navItems = [{ icon: HouseSimpleIcon, label: 'Home', href: '/' }];
+  const navItems = [
+    { icon: HouseSimpleIcon, label: 'Home', href: '/' },
+    { icon: SparkleIcon, label: 'Generator', href: '/generator' },
+  ];
 
   const displayName = username || email;
   const initials = displayName

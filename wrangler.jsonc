@@ -3,7 +3,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
 
   // Name of your worker
-  "name": "__change_me__",
+  "name": "logoer",
 
   // Entry point for your worker
   "main": "src/worker.tsx",
@@ -17,11 +17,34 @@
     "binding": "ASSETS",
   },
 
-  // R2 bucket for avatar storage
+  // Cloudflare Container for logo generation agent
+  "containers": [
+    {
+      "class_name": "LogoAgentContainer",
+      "image": "./container/Dockerfile",
+      "max_instances": 10,
+      "instance_type": "standard-1",
+    },
+  ],
+
+  // Workers AI for image analysis
+  "ai": {
+    "binding": "AI",
+  },
+
+  // R2 buckets for storage
   "r2_buckets": [
     {
       "binding": "AVATAR_BUCKET",
       "bucket_name": "user-avatars",
+    },
+    {
+      "binding": "LOGOS_BUCKET",
+      "bucket_name": "logoer-logos",
+    },
+    {
+      "binding": "UPLOADS_BUCKET",
+      "bucket_name": "logoer-uploads",
     },
   ],
 
@@ -45,6 +68,10 @@
         "name": "REALTIME_DURABLE_OBJECT",
         "class_name": "RealtimeDurableObject",
       },
+      {
+        "name": "LOGO_AGENT",
+        "class_name": "LogoAgentContainer",
+      },
     ],
   },
 
@@ -56,6 +83,10 @@
     {
       "tag": "v2",
       "new_classes": ["RealtimeDurableObject"],
+    },
+    {
+      "tag": "v3",
+      "new_classes": ["LogoAgentContainer"],
     },
   ],
 }

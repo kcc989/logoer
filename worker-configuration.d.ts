@@ -3,7 +3,7 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/worker");
-		durableNamespaces: "Database" | "SyncedStateServer" | "RealtimeDurableObject";
+		durableNamespaces: "Database" | "SyncedStateServer" | "RealtimeDurableObject" | "LogoAgentContainer";
 	}
 	interface Env {
 		BETTER_AUTH_URL: string;
@@ -13,7 +13,11 @@ declare namespace Cloudflare {
 		DATABASE: DurableObjectNamespace<import("./src/worker").Database>;
 		STATE_COORDINATOR: DurableObjectNamespace /* SyncedStateServer */;
 		REALTIME_DURABLE_OBJECT: DurableObjectNamespace<import("./src/worker").RealtimeDurableObject>;
+		LOGO_AGENT: DurableObjectNamespace;
 		AVATAR_BUCKET: R2Bucket;
+		LOGOS_BUCKET: R2Bucket;
+		UPLOADS_BUCKET: R2Bucket;
+		AI: Ai;
 		ASSETS: Fetcher;
 	}
 }
