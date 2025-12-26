@@ -86,7 +86,25 @@
     },
     {
       "tag": "v3",
-      "new_classes": ["LogoAgentContainer"],
+      "new_sqlite_classes": ["LogoAgentContainer"],
     },
   ],
+
+  // Cloudflare Queues for logo ingestion
+  "queues": {
+    "producers": [
+      {
+        "queue": "logo-ingestion-queue",
+        "binding": "LOGO_INGESTION_QUEUE",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "logo-ingestion-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+      },
+    ],
+  },
 }
