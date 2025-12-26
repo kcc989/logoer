@@ -7,7 +7,9 @@ import { defineApp, type RequestInfo } from 'rwsdk/worker';
 import { userRoutes, avatarRoutes } from './app/api/users/routes';
 import { logoRoutes, logoAssetsRoutes } from './app/api/logos/routes';
 import { aiRoutes, uploadRoutes } from './app/api/ai/routes';
+import { adminRoutes } from './app/api/admin/routes';
 import { chatHandler } from './app/api/chat/handler';
+import { processLogoIngestion } from './queue-handler';
 import { AppLayout } from './app/app-layout';
 import { getSidebarCollapsed } from './lib/sidebar';
 import { getTheme, serializeTheme } from './lib/theme';
@@ -74,9 +76,9 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
   }),
   realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
   route('/api/chat', {
-    POST: async ({ request }) => chatHandler({ request, env }),
+    post: async ({ request }) => chatHandler({ request }),
   }),
-  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, logoAssetsRoutes, aiRoutes, uploadRoutes]),
+  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, logoAssetsRoutes, aiRoutes, uploadRoutes, adminRoutes]),
   render(Document, [
     route('/', Home),
     route('/login', Login),
@@ -88,4 +90,5 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
 
 export default {
   fetch: app.fetch,
+  queue: processLogoIngestion,
 } satisfies ExportedHandler<Env>;
