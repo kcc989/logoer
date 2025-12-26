@@ -1,17 +1,16 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useChat } from '@tanstack/ai-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-import { Card } from '@/components/ui/card';
 import type { LogoConfig } from '@/lib/logo-types';
 import { DEFAULT_LOGO_CONFIG } from '@/lib/logo-constants';
+import { deriveViewMode } from '@/lib/generator-state';
 
-import { FeedbackChat } from '../FeedbackChat';
-import { PreviewCanvas } from './PreviewCanvas';
-import { ConfigPanel } from './ConfigPanel';
-import { VersionHistory } from './VersionHistory';
-import { SaveLogoDialog } from './SaveLogoDialog';
+import { IdleView } from './IdleView';
+import { GeneratingView } from './GeneratingView';
+import { ReviewingView } from './ReviewingView';
 
 export function GeneratorClient() {
   const [config, setConfig] = useState<LogoConfig>(DEFAULT_LOGO_CONFIG);
@@ -19,9 +18,12 @@ export function GeneratorClient() {
   const [versions, setVersions] = useState<
     { id: string; svg: string; timestamp: Date }[]
   >([]);
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ReturnType<typeof useChat>['messages']>([]);
+
+  // Derive view mode from state
+  const viewMode = deriveViewMode({ svg, isLoading });
 
   const handleLogoGenerated = useCallback((newSvg: string) => {
     setSvg(newSvg);
@@ -98,8 +100,6 @@ export function GeneratorClient() {
         if (!response.ok) {
           throw new Error('Failed to save logo');
         }
-
-        setShowSaveDialog(false);
       } catch (error) {
         console.error('Error saving logo:', error);
       } finally {
@@ -109,61 +109,75 @@ export function GeneratorClient() {
     [svg, config]
   );
 
+  const handleMessagesChange = useCallback((newMessages: typeof messages) => {
+    setMessages(newMessages);
+  }, []);
+
+  const handleLoadingChange = useCallback((loading: boolean) => {
+    setIsLoading(loading);
+  }, []);
+
   return (
     <TooltipProvider>
-      <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left Panel - Configuration */}
-        <div className="lg:col-span-3">
-          <Card className="h-full overflow-hidden p-4">
-            <ConfigPanel
+      <div className="relative">
+        {/* Idle View */}
+        <div
+          className={`transition-all duration-500 ease-out ${
+            viewMode === 'idle'
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-4 pointer-events-none absolute inset-0'
+          }`}
+        >
+          {(viewMode === 'idle' || viewMode === 'generating') && (
+            <IdleView
+              onLogoGenerated={handleLogoGenerated}
+              config={config}
+              onMessagesChange={handleMessagesChange}
+              onLoadingChange={handleLoadingChange}
+            />
+          )}
+        </div>
+
+        {/* Generating View */}
+        <div
+          className={`transition-all duration-500 ease-out ${
+            viewMode === 'generating'
+              ? 'opacity-100 scale-100'
+              : 'opacity-0 scale-95 pointer-events-none absolute inset-0'
+          }`}
+        >
+          {viewMode === 'generating' && (
+            <GeneratingView messages={messages} />
+          )}
+        </div>
+
+        {/* Reviewing View */}
+        <div
+          className={`transition-all duration-500 ease-out ${
+            viewMode === 'reviewing'
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 -translate-y-4 pointer-events-none absolute inset-0'
+          }`}
+        >
+          {viewMode === 'reviewing' && svg && (
+            <ReviewingView
+              svg={svg}
+              onLogoGenerated={handleLogoGenerated}
               config={config}
               onConfigChange={handleConfigChange}
               onColorChange={handleColorChange}
               onApplyPreset={handleApplyPreset}
-            />
-          </Card>
-        </div>
-
-        {/* Center Panel - Preview Canvas */}
-        <div className="lg:col-span-6">
-          <Card className="flex h-full flex-col p-4">
-            <PreviewCanvas
-              svg={svg}
-              isLoading={false}
               versions={versions}
               onSelectVersion={handleSelectVersion}
-              onToggleVersions={() => setShowVersionHistory(true)}
-              onSave={() => setShowSaveDialog(true)}
+              onDeleteVersion={handleDeleteVersion}
+              onSaveLogo={handleSaveLogo}
               isSaving={isSaving}
+              initialMessages={messages}
+              initialIsLoading={isLoading}
             />
-          </Card>
-        </div>
-
-        {/* Right Panel - Chat */}
-        <div className="lg:col-span-3">
-          <Card className="h-full p-4">
-            <FeedbackChat onLogoGenerated={handleLogoGenerated} config={config} />
-          </Card>
+          )}
         </div>
       </div>
-
-      {/* Version History Sidebar */}
-      <VersionHistory
-        open={showVersionHistory}
-        onOpenChange={setShowVersionHistory}
-        versions={versions}
-        currentSvg={svg}
-        onSelectVersion={handleSelectVersion}
-        onDeleteVersion={handleDeleteVersion}
-      />
-
-      {/* Save Logo Dialog */}
-      <SaveLogoDialog
-        open={showSaveDialog}
-        onOpenChange={setShowSaveDialog}
-        onSave={handleSaveLogo}
-        isSaving={isSaving}
-      />
     </TooltipProvider>
   );
 }
