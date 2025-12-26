@@ -33,6 +33,7 @@ import { createAuth } from '@/lib/auth';
 
 export { Database } from '@/db/centralDbDurableObject';
 export { RealtimeDurableObject } from 'rwsdk/realtime/durableObject';
+export { AgentSession } from '@/lib/agent';
 
 // Logo generation container
 export class LogoAgentContainer extends Container<Env> {
