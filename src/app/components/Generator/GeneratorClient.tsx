@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 import { Card } from '@/components/ui/card';
-import type { LogoConfig, LogoType, LogoShape, LogoTheme } from '@/lib/logo-types';
-import { DEFAULT_LOGO_CONFIG, LOGO_TYPES, LOGO_SHAPES, LOGO_THEMES } from '@/lib/logo-constants';
+import type { LogoConfig } from '@/lib/logo-types';
+import { DEFAULT_LOGO_CONFIG } from '@/lib/logo-constants';
 
 import { FeedbackChat } from '../FeedbackChat';
 import { PreviewCanvas } from './PreviewCanvas';
 import { ConfigPanel } from './ConfigPanel';
+import { VersionHistory } from './VersionHistory';
 
 export function GeneratorClient() {
   const [config, setConfig] = useState<LogoConfig>(DEFAULT_LOGO_CONFIG);
@@ -16,6 +18,7 @@ export function GeneratorClient() {
   const [versions, setVersions] = useState<
     { id: string; svg: string; timestamp: Date }[]
   >([]);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
 
   const handleLogoGenerated = useCallback((newSvg: string) => {
     setSvg(newSvg);
@@ -35,6 +38,13 @@ export function GeneratorClient() {
     [versions]
   );
 
+  const handleDeleteVersion = useCallback(
+    (id: string) => {
+      setVersions((prev) => prev.filter((v) => v.id !== id));
+    },
+    []
+  );
+
   const handleConfigChange = useCallback(
     <K extends keyof LogoConfig>(key: K, value: LogoConfig[K]) => {
       setConfig((prev) => ({ ...prev, [key]: value }));
@@ -52,37 +62,62 @@ export function GeneratorClient() {
     []
   );
 
+  const handleApplyPreset = useCallback((preset: Partial<LogoConfig>) => {
+    setConfig((prev) => ({
+      ...prev,
+      ...preset,
+      colors: preset.colors ? { ...prev.colors, ...preset.colors } : prev.colors,
+      typography: preset.typography
+        ? { ...prev.typography, ...preset.typography }
+        : prev.typography,
+    }));
+  }, []);
+
   return (
-    <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-6 lg:grid-cols-12">
-      {/* Left Panel - Configuration */}
-      <div className="lg:col-span-3">
-        <Card className="h-full overflow-y-auto p-4">
-          <ConfigPanel
-            config={config}
-            onConfigChange={handleConfigChange}
-            onColorChange={handleColorChange}
-          />
-        </Card>
+    <TooltipProvider>
+      <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left Panel - Configuration */}
+        <div className="lg:col-span-3">
+          <Card className="h-full overflow-hidden p-4">
+            <ConfigPanel
+              config={config}
+              onConfigChange={handleConfigChange}
+              onColorChange={handleColorChange}
+              onApplyPreset={handleApplyPreset}
+            />
+          </Card>
+        </div>
+
+        {/* Center Panel - Preview Canvas */}
+        <div className="lg:col-span-6">
+          <Card className="flex h-full flex-col p-4">
+            <PreviewCanvas
+              svg={svg}
+              isLoading={false}
+              versions={versions}
+              onSelectVersion={handleSelectVersion}
+              onToggleVersions={() => setShowVersionHistory(true)}
+            />
+          </Card>
+        </div>
+
+        {/* Right Panel - Chat */}
+        <div className="lg:col-span-3">
+          <Card className="h-full p-4">
+            <FeedbackChat onLogoGenerated={handleLogoGenerated} config={config} />
+          </Card>
+        </div>
       </div>
 
-      {/* Center Panel - Preview Canvas */}
-      <div className="lg:col-span-6">
-        <Card className="flex h-full flex-col p-4">
-          <PreviewCanvas
-            svg={svg}
-            isLoading={false}
-            versions={versions}
-            onSelectVersion={handleSelectVersion}
-          />
-        </Card>
-      </div>
-
-      {/* Right Panel - Chat */}
-      <div className="lg:col-span-3">
-        <Card className="h-full p-4">
-          <FeedbackChat onLogoGenerated={handleLogoGenerated} config={config} />
-        </Card>
-      </div>
-    </div>
+      {/* Version History Sidebar */}
+      <VersionHistory
+        open={showVersionHistory}
+        onOpenChange={setShowVersionHistory}
+        versions={versions}
+        currentSvg={svg}
+        onSelectVersion={handleSelectVersion}
+        onDeleteVersion={handleDeleteVersion}
+      />
+    </TooltipProvider>
   );
 }

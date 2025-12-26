@@ -1,12 +1,32 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  MagnifyingGlassMinus,
+  MagnifyingGlassPlus,
+  DownloadSimple,
+  ClockCounterClockwise,
+  ArrowsOut,
+} from '@phosphor-icons/react';
+import { EXPORT_SIZES } from '@/lib/logo-constants';
 
 interface PreviewCanvasProps {
   svg: string | null;
   isLoading: boolean;
   versions: { id: string; svg: string; timestamp: Date }[];
   onSelectVersion: (id: string) => void;
+  onToggleVersions?: () => void;
 }
 
 export function PreviewCanvas({
@@ -14,12 +34,12 @@ export function PreviewCanvas({
   isLoading,
   versions,
   onSelectVersion,
+  onToggleVersions,
 }: PreviewCanvasProps) {
   const [zoom, setZoom] = useState(1);
-  const [showVersions, setShowVersions] = useState(false);
 
   const handleExport = useCallback(
-    async (format: 'svg' | 'png') => {
+    async (format: 'svg' | 'png', size?: { width: number; height: number }) => {
       if (!svg) return;
 
       if (format === 'svg') {
@@ -31,76 +51,148 @@ export function PreviewCanvas({
         a.click();
         URL.revokeObjectURL(url);
       } else {
-        // Convert SVG to PNG via canvas
+        // Convert SVG to PNG via canvas with specified size
+        const targetWidth = size?.width ?? 1024;
+        const targetHeight = size?.height ?? 1024;
+
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          canvas.width = img.width * 2;
-          canvas.height = img.height * 2;
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
           const ctx = canvas.getContext('2d');
           if (ctx) {
-            ctx.scale(2, 2);
-            ctx.drawImage(img, 0, 0);
+            // Draw white background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+            // Calculate scaling to fit while maintaining aspect ratio
+            const scale = Math.min(
+              targetWidth / img.width,
+              targetHeight / img.height
+            );
+            const x = (targetWidth - img.width * scale) / 2;
+            const y = (targetHeight - img.height * scale) / 2;
+
+            ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
             canvas.toBlob((blob) => {
               if (blob) {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'logo.png';
+                a.download = `logo-${targetWidth}x${targetHeight}.png`;
                 a.click();
                 URL.revokeObjectURL(url);
               }
             }, 'image/png');
           }
         };
-        img.src = `data:image/svg+xml;base64,${btoa(svg)}`;
+        // Encode SVG properly for image source
+        const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+        img.src = URL.createObjectURL(svgBlob);
       }
     },
     [svg]
   );
+
+  const zoomIn = () => setZoom((z) => Math.min(4, z + 0.25));
+  const zoomOut = () => setZoom((z) => Math.max(0.25, z - 0.25));
+  const resetZoom = () => setZoom(1);
 
   return (
     <>
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h2 className="font-semibold">Preview</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleExport('svg')}
-            disabled={!svg}
-            className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
-          >
-            Export SVG
-          </button>
-          <button
-            onClick={() => handleExport('png')}
-            disabled={!svg}
-            className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
-          >
-            Export PNG
-          </button>
+        <div className="flex items-center gap-2">
+          {/* Version History Toggle */}
+          {versions.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onToggleVersions}
+                  className="gap-1.5"
+                >
+                  <ClockCounterClockwise className="h-4 w-4" />
+                  <span className="text-xs">{versions.length}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>View version history</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Export Dropdown */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={!svg}>
+                    <DownloadSimple className="mr-1.5 h-4 w-4" />
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Export logo</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>SVG (Vector)</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleExport('svg')}>
+                Download SVG
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>PNG (Raster)</DropdownMenuLabel>
+              {EXPORT_SIZES.map((size) => (
+                <DropdownMenuItem
+                  key={size.label}
+                  onClick={() =>
+                    handleExport('png', { width: size.width, height: size.height })
+                  }
+                >
+                  {size.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {/* Preview Area */}
-      <div className="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-border bg-muted/30">
+        {/* Checkered background pattern */}
+        <div
+          className="absolute inset-0 opacity-50"
+          style={{
+            backgroundImage: `
+              linear-gradient(45deg, #e5e5e5 25%, transparent 25%),
+              linear-gradient(-45deg, #e5e5e5 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, #e5e5e5 75%),
+              linear-gradient(-45deg, transparent 75%, #e5e5e5 75%)
+            `,
+            backgroundSize: '20px 20px',
+            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+          }}
+        />
+
         {isLoading ? (
-          <div className="text-center text-muted-foreground">
+          <div className="relative z-10 text-center text-muted-foreground">
             <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="font-medium">Agent is designing your logo...</p>
           </div>
         ) : svg ? (
           <div
-            className="flex items-center justify-center transition-transform"
+            className="relative z-10 flex items-center justify-center transition-transform duration-200"
             style={{ transform: `scale(${zoom})` }}
           >
             <div
-              className="svg-container"
+              className="svg-container [&>svg]:max-h-[300px] [&>svg]:max-w-[300px]"
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </div>
         ) : (
-          <div className="text-center text-muted-foreground">
+          <div className="relative z-10 text-center text-muted-foreground">
             <svg
               className="mx-auto mb-4 h-12 w-12"
               fill="none"
@@ -122,58 +214,56 @@ export function PreviewCanvas({
         )}
       </div>
 
-      {/* Bottom controls */}
+      {/* Bottom controls - Zoom */}
       <div className="mt-4 flex items-center justify-between">
-        {/* Zoom controls */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}
-            className="rounded-md border border-input px-3 py-1 text-sm hover:bg-accent"
-          >
-            -
-          </button>
-          <span className="min-w-[4rem] text-center text-sm">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon-sm" onClick={zoomOut}>
+                <MagnifyingGlassMinus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Zoom out</TooltipContent>
+          </Tooltip>
+
+          <div className="w-32">
+            <Slider
+              value={[zoom]}
+              min={0.25}
+              max={4}
+              step={0.25}
+              onValueChange={([value]) => setZoom(value)}
+            />
+          </div>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon-sm" onClick={zoomIn}>
+                <MagnifyingGlassPlus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Zoom in</TooltipContent>
+          </Tooltip>
+
+          <span className="min-w-[3.5rem] text-center text-xs text-muted-foreground">
             {Math.round(zoom * 100)}%
           </span>
-          <button
-            onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
-            className="rounded-md border border-input px-3 py-1 text-sm hover:bg-accent"
-          >
-            +
-          </button>
-        </div>
 
-        {/* Version toggle */}
-        {versions.length > 0 && (
-          <button
-            onClick={() => setShowVersions(!showVersions)}
-            className="rounded-md border border-input px-3 py-1 text-sm hover:bg-accent"
-          >
-            {versions.length} version{versions.length > 1 ? 's' : ''}
-          </button>
-        )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={resetZoom}
+                className="ml-1"
+              >
+                <ArrowsOut className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset zoom</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
-
-      {/* Versions panel */}
-      {showVersions && versions.length > 0 && (
-        <div className="mt-4 flex gap-2 overflow-x-auto rounded-lg border border-border bg-muted/30 p-2">
-          {versions.map((version) => (
-            <button
-              key={version.id}
-              onClick={() => onSelectVersion(version.id)}
-              className="flex-shrink-0 rounded border border-border bg-white p-2 hover:border-primary"
-            >
-              <div
-                className="h-16 w-16"
-                dangerouslySetInnerHTML={{ __html: version.svg }}
-              />
-              <p className="mt-1 text-center text-xs text-muted-foreground">
-                {version.timestamp.toLocaleTimeString()}
-              </p>
-            </button>
-          ))}
-        </div>
-      )}
     </>
   );
 }

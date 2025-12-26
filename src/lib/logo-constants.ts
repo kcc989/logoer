@@ -197,3 +197,122 @@ export const FEEDBACK_SUGGESTIONS = [
   'Make the text larger',
   'Simplify the shape',
 ];
+
+/**
+ * Industry presets for quick logo configuration
+ */
+export type Industry =
+  | 'technology'
+  | 'finance'
+  | 'healthcare'
+  | 'food'
+  | 'fitness'
+  | 'education'
+  | 'creative'
+  | 'retail';
+
+export const INDUSTRY_PRESETS: {
+  value: Industry;
+  label: string;
+  description: string;
+  config: Partial<LogoConfig>;
+}[] = [
+  {
+    value: 'technology',
+    label: 'Technology',
+    description: 'Modern, innovative tech startups',
+    config: {
+      theme: 'tech',
+      type: 'abstract',
+      shape: 'hexagon',
+      colors: { primary: '#06b6d4', accent: '#22d3ee' },
+    },
+  },
+  {
+    value: 'finance',
+    label: 'Finance',
+    description: 'Banks, investments, financial services',
+    config: {
+      theme: 'elegant',
+      type: 'wordmark',
+      shape: 'shield',
+      colors: { primary: '#1c1917', accent: '#a8a29e' },
+    },
+  },
+  {
+    value: 'healthcare',
+    label: 'Healthcare',
+    description: 'Medical, wellness, health services',
+    config: {
+      theme: 'modern',
+      type: 'combination',
+      shape: 'circle',
+      colors: { primary: '#0284c7', accent: '#38bdf8' },
+    },
+  },
+  {
+    value: 'food',
+    label: 'Food & Beverage',
+    description: 'Restaurants, cafes, food brands',
+    config: {
+      theme: 'organic',
+      type: 'emblem',
+      shape: 'circle',
+      colors: { primary: '#166534', accent: '#4ade80' },
+    },
+  },
+  {
+    value: 'fitness',
+    label: 'Fitness',
+    description: 'Gyms, sports, athletic brands',
+    config: {
+      theme: 'bold',
+      type: 'lettermark',
+      shape: 'diamond',
+      colors: { primary: '#dc2626', accent: '#fbbf24' },
+    },
+  },
+  {
+    value: 'education',
+    label: 'Education',
+    description: 'Schools, universities, learning',
+    config: {
+      theme: 'vintage',
+      type: 'emblem',
+      shape: 'shield',
+      colors: { primary: '#78350f', accent: '#d97706' },
+    },
+  },
+  {
+    value: 'creative',
+    label: 'Creative',
+    description: 'Design studios, agencies, artists',
+    config: {
+      theme: 'playful',
+      type: 'abstract',
+      shape: 'star',
+      colors: { primary: '#7c3aed', accent: '#f472b6' },
+    },
+  },
+  {
+    value: 'retail',
+    label: 'Retail',
+    description: 'Stores, e-commerce, shopping',
+    config: {
+      theme: 'modern',
+      type: 'wordmark',
+      shape: 'circle',
+      colors: { primary: '#0f172a', accent: '#3b82f6' },
+    },
+  },
+];
+
+/**
+ * Export size presets
+ */
+export const EXPORT_SIZES = [
+  { label: 'Small (256px)', width: 256, height: 256 },
+  { label: 'Medium (512px)', width: 512, height: 512 },
+  { label: 'Large (1024px)', width: 1024, height: 1024 },
+  { label: 'Extra Large (2048px)', width: 2048, height: 2048 },
+] as const;
