@@ -4,6 +4,7 @@ import {
   CaretDoubleLeftIcon,
   CaretDoubleRightIcon,
   HouseSimpleIcon,
+  ImagesIcon,
   MoonIcon,
   SignOutIcon,
   SparkleIcon,
@@ -207,6 +208,7 @@ export function AppSidebar({
   const navItems = [
     { icon: HouseSimpleIcon, label: 'Home', href: '/' },
     { icon: SparkleIcon, label: 'Generator', href: '/generator' },
+    { icon: ImagesIcon, label: 'Gallery', href: '/gallery' },
   ];
 
   const displayName = username || email;

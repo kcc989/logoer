@@ -18,6 +18,7 @@ import {
   DownloadSimple,
   ClockCounterClockwise,
   ArrowsOut,
+  FloppyDisk,
 } from '@phosphor-icons/react';
 import { EXPORT_SIZES } from '@/lib/logo-constants';
 
@@ -27,6 +28,8 @@ interface PreviewCanvasProps {
   versions: { id: string; svg: string; timestamp: Date }[];
   onSelectVersion: (id: string) => void;
   onToggleVersions?: () => void;
+  onSave?: () => void;
+  isSaving?: boolean;
 }
 
 export function PreviewCanvas({
@@ -35,6 +38,8 @@ export function PreviewCanvas({
   versions,
   onSelectVersion,
   onToggleVersions,
+  onSave,
+  isSaving,
 }: PreviewCanvasProps) {
   const [zoom, setZoom] = useState(1);
 
@@ -121,6 +126,24 @@ export function PreviewCanvas({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>View version history</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Save Button */}
+          {onSave && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={onSave}
+                  disabled={!svg || isSaving}
+                >
+                  <FloppyDisk className="mr-1.5 h-4 w-4" />
+                  {isSaving ? 'Saving...' : 'Save'}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save to gallery</TooltipContent>
             </Tooltip>
           )}
 

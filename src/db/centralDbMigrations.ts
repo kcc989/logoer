@@ -110,4 +110,58 @@ export const migrations = {
       await db.schema.dropTable('user').ifExists().execute();
     },
   },
+  '002_logos_schema': {
+    async up(db) {
+      return [
+        // logos table - stores saved logos
+        await db.schema
+          .createTable('logo')
+          .addColumn('id', 'text', (col) => col.primaryKey())
+          .addColumn('userId', 'text', (col) =>
+            col.notNull().references('user.id').onDelete('cascade')
+          )
+          .addColumn('name', 'text', (col) => col.notNull())
+          .addColumn('description', 'text')
+          .addColumn('currentVersionId', 'text')
+          .addColumn('createdAt', 'text', (col) => col.notNull())
+          .addColumn('updatedAt', 'text', (col) => col.notNull())
+          .execute(),
+
+        // Create index on userId for faster lookups
+        await db.schema
+          .createIndex('logo_user_id_idx')
+          .on('logo')
+          .column('userId')
+          .execute(),
+
+        // logo_version table - stores version history
+        await db.schema
+          .createTable('logo_version')
+          .addColumn('id', 'text', (col) => col.primaryKey())
+          .addColumn('logoId', 'text', (col) =>
+            col.notNull().references('logo.id').onDelete('cascade')
+          )
+          .addColumn('svg', 'text', (col) => col.notNull())
+          .addColumn('pngUrl', 'text')
+          .addColumn('config', 'text', (col) => col.notNull()) // JSON string
+          .addColumn('feedback', 'text')
+          .addColumn('reasoning', 'text')
+          .addColumn('iterations', 'integer', (col) => col.defaultTo(1))
+          .addColumn('createdAt', 'text', (col) => col.notNull())
+          .execute(),
+
+        // Create index on logoId for faster lookups
+        await db.schema
+          .createIndex('logo_version_logo_id_idx')
+          .on('logo_version')
+          .column('logoId')
+          .execute(),
+      ];
+    },
+
+    async down(db) {
+      await db.schema.dropTable('logo_version').ifExists().execute();
+      await db.schema.dropTable('logo').ifExists().execute();
+    },
+  },
 } satisfies Migrations;

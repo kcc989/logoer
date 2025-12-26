@@ -1,10 +1,13 @@
 'use client';
 
+import { useState, useRef } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Spinner } from '@/components/ui/spinner';
+import { UploadSimple, Sparkle, X } from '@phosphor-icons/react';
 import type { LogoConfig, LogoType, LogoShape, LogoTheme } from '@/lib/logo-types';
 import {
   LOGO_TYPES,
@@ -14,6 +17,17 @@ import {
   INDUSTRY_PRESETS,
   type Industry,
 } from '@/lib/logo-constants';
+
+interface ImageAnalysis {
+  id: string;
+  url: string;
+  analysis: {
+    description: string;
+    suggestedColors: string[];
+    suggestedTheme: string;
+    suggestedType: string;
+  };
+}
 
 interface ConfigPanelProps {
   config: LogoConfig;
@@ -28,6 +42,117 @@ export function ConfigPanel({
   onColorChange,
   onApplyPreset,
 }: ConfigPanelProps) {
+  const [imageAnalysis, setImageAnalysis] = useState<ImageAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzing(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze image');
+      }
+
+      const data: ImageAnalysis = await response.json();
+      setImageAnalysis(data);
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const applyAnalysisSuggestions = () => {
+    if (!imageAnalysis || !onApplyPreset) return;
+
+    const { analysis } = imageAnalysis;
+
+    // Map suggested type to logo type
+    const typeMap: Record<string, LogoType> = {
+      wordmark: 'wordmark',
+      lettermark: 'lettermark',
+      pictorial: 'pictorial',
+      abstract: 'abstract',
+      mascot: 'mascot',
+      combination: 'combination',
+      emblem: 'emblem',
+    };
+
+    // Map suggested theme to logo theme
+    const themeMap: Record<string, LogoTheme> = {
+      modern: 'modern',
+      vintage: 'vintage',
+      minimal: 'minimal',
+      bold: 'bold',
+      elegant: 'elegant',
+      playful: 'playful',
+      tech: 'tech',
+      organic: 'organic',
+    };
+
+    const suggestedConfig: Partial<LogoConfig> = {
+      type: typeMap[analysis.suggestedType] || 'combination',
+      theme: themeMap[analysis.suggestedTheme] || 'modern',
+    };
+
+    // Use suggested colors if available
+    if (analysis.suggestedColors.length >= 2) {
+      // Convert color names to hex (basic mapping)
+      const colorMap: Record<string, string> = {
+        red: '#ef4444',
+        blue: '#3b82f6',
+        green: '#22c55e',
+        yellow: '#eab308',
+        orange: '#f97316',
+        purple: '#a855f7',
+        pink: '#ec4899',
+        black: '#18181b',
+        white: '#fafafa',
+        gray: '#6b7280',
+        grey: '#6b7280',
+        gold: '#d4af37',
+        silver: '#c0c0c0',
+        navy: '#1e3a5f',
+        teal: '#14b8a6',
+        coral: '#ff7f50',
+        maroon: '#800000',
+        burgundy: '#800020',
+        cyan: '#06b6d4',
+        magenta: '#d946ef',
+        indigo: '#6366f1',
+        violet: '#8b5cf6',
+        brown: '#92400e',
+        beige: '#d5c4a1',
+        cream: '#fffdd0',
+        olive: '#84cc16',
+      };
+
+      const primary = colorMap[analysis.suggestedColors[0]] || '#3b82f6';
+      const accent = colorMap[analysis.suggestedColors[1]] || '#6b7280';
+      suggestedConfig.colors = { primary, accent };
+    }
+
+    onApplyPreset(suggestedConfig);
+  };
+
+  const clearAnalysis = () => {
+    setImageAnalysis(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleIndustrySelect = (industry: Industry) => {
     const preset = INDUSTRY_PRESETS.find((p) => p.value === industry);
     if (preset && onApplyPreset) {
@@ -72,6 +197,10 @@ export function ConfigPanel({
           </TabsTrigger>
           <TabsTrigger value="colors" className="flex-1">
             Colors
+          </TabsTrigger>
+          <TabsTrigger value="inspire" className="flex-1">
+            <Sparkle className="mr-1 h-3 w-3" />
+            AI
           </TabsTrigger>
         </TabsList>
 
@@ -296,6 +425,110 @@ export function ConfigPanel({
                 </button>
               ))}
             </div>
+          </div>
+        </TabsContent>
+
+        {/* AI Inspiration Tab */}
+        <TabsContent value="inspire" className="space-y-4">
+          <div>
+            <Label className="mb-2 block text-sm font-medium">
+              Image Inspiration
+            </Label>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Upload an image and AI will analyze it to suggest colors, style,
+              and theme for your logo.
+            </p>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+
+            {!imageAnalysis && !isAnalyzing && (
+              <Button
+                variant="outline"
+                className="w-full h-24 flex-col gap-2"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadSimple className="h-6 w-6" />
+                <span className="text-xs">Upload an image for inspiration</span>
+              </Button>
+            )}
+
+            {isAnalyzing && (
+              <div className="flex h-24 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/50 bg-primary/5">
+                <Spinner className="h-6 w-6" />
+                <span className="text-xs text-muted-foreground">
+                  Analyzing image...
+                </span>
+              </div>
+            )}
+
+            {imageAnalysis && !isAnalyzing && (
+              <div className="space-y-3">
+                {/* Uploaded Image Preview */}
+                <div className="relative">
+                  <img
+                    src={imageAnalysis.url}
+                    alt="Uploaded inspiration"
+                    className="h-32 w-full rounded-lg object-cover"
+                  />
+                  <button
+                    onClick={clearAnalysis}
+                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1 text-white hover:bg-black/70"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Analysis Results */}
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <div className="text-xs">
+                    <span className="font-medium">Style:</span>{' '}
+                    <span className="capitalize">
+                      {imageAnalysis.analysis.suggestedTheme}
+                    </span>
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-medium">Type:</span>{' '}
+                    <span className="capitalize">
+                      {imageAnalysis.analysis.suggestedType}
+                    </span>
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-medium">Colors:</span>{' '}
+                    <span className="capitalize">
+                      {imageAnalysis.analysis.suggestedColors.join(', ')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-3">
+                    {imageAnalysis.analysis.description}
+                  </p>
+                </div>
+
+                {/* Apply Suggestions Button */}
+                <Button
+                  variant="default"
+                  className="w-full"
+                  onClick={applyAnalysisSuggestions}
+                >
+                  <Sparkle className="mr-2 h-4 w-4" />
+                  Apply Suggestions
+                </Button>
+
+                {/* Upload New Button */}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Upload Different Image
+                </Button>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

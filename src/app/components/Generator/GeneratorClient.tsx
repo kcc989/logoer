@@ -11,6 +11,7 @@ import { FeedbackChat } from '../FeedbackChat';
 import { PreviewCanvas } from './PreviewCanvas';
 import { ConfigPanel } from './ConfigPanel';
 import { VersionHistory } from './VersionHistory';
+import { SaveLogoDialog } from './SaveLogoDialog';
 
 export function GeneratorClient() {
   const [config, setConfig] = useState<LogoConfig>(DEFAULT_LOGO_CONFIG);
@@ -19,6 +20,8 @@ export function GeneratorClient() {
     { id: string; svg: string; timestamp: Date }[]
   >([]);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleLogoGenerated = useCallback((newSvg: string) => {
     setSvg(newSvg);
@@ -73,6 +76,39 @@ export function GeneratorClient() {
     }));
   }, []);
 
+  const handleSaveLogo = useCallback(
+    async (name: string, description: string) => {
+      if (!svg) return;
+
+      setIsSaving(true);
+      try {
+        const response = await fetch('/api/logos', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name,
+            description: description || undefined,
+            svg,
+            config,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save logo');
+        }
+
+        setShowSaveDialog(false);
+      } catch (error) {
+        console.error('Error saving logo:', error);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [svg, config]
+  );
+
   return (
     <TooltipProvider>
       <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-6 lg:grid-cols-12">
@@ -97,6 +133,8 @@ export function GeneratorClient() {
               versions={versions}
               onSelectVersion={handleSelectVersion}
               onToggleVersions={() => setShowVersionHistory(true)}
+              onSave={() => setShowSaveDialog(true)}
+              isSaving={isSaving}
             />
           </Card>
         </div>
@@ -117,6 +155,14 @@ export function GeneratorClient() {
         currentSvg={svg}
         onSelectVersion={handleSelectVersion}
         onDeleteVersion={handleDeleteVersion}
+      />
+
+      {/* Save Logo Dialog */}
+      <SaveLogoDialog
+        open={showSaveDialog}
+        onOpenChange={setShowSaveDialog}
+        onSave={handleSaveLogo}
+        isSaving={isSaving}
       />
     </TooltipProvider>
   );

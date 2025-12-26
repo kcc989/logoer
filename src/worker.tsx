@@ -5,6 +5,8 @@ import { layout, prefix, render, route } from 'rwsdk/router';
 import { defineApp, type RequestInfo } from 'rwsdk/worker';
 
 import { userRoutes, avatarRoutes } from './app/api/users/routes';
+import { logoRoutes, logoAssetsRoutes } from './app/api/logos/routes';
+import { aiRoutes, uploadRoutes } from './app/api/ai/routes';
 import { chatHandler } from './app/api/chat/handler';
 import { AppLayout } from './app/app-layout';
 import { getSidebarCollapsed } from './lib/sidebar';
@@ -16,6 +18,7 @@ import { Home } from '@/app/pages/Home';
 import { Login } from '@/app/pages/Login';
 import { Settings } from '@/app/pages/Settings';
 import { Generator } from '@/app/pages/Generator';
+import { Gallery } from '@/app/pages/Gallery';
 import type { Session, User } from '@/lib/auth';
 import { createAuth } from '@/lib/auth';
 
@@ -73,12 +76,13 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
   route('/api/chat', {
     POST: async ({ request }) => chatHandler({ request, env }),
   }),
-  prefix('/api', [userRoutes, avatarRoutes]),
+  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, logoAssetsRoutes, aiRoutes, uploadRoutes]),
   render(Document, [
     route('/', Home),
     route('/login', Login),
     prefix('/settings', [layout(AppLayout, [route('/', Settings)])]),
     prefix('/generator', [layout(AppLayout, [route('/', Generator)])]),
+    prefix('/gallery', [layout(AppLayout, [route('/', Gallery)])]),
   ]),
 ]);
 
