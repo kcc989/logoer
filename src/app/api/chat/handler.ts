@@ -1,5 +1,6 @@
 import { chat, toStreamResponse, toolDefinition } from '@tanstack/ai';
 import { anthropicText } from '@tanstack/ai-anthropic';
+import { getContainer } from '@cloudflare/containers';
 import { z } from 'zod';
 
 /**
@@ -107,7 +108,7 @@ Remember: You handle the conversation, and the generateLogo tool handles the act
  * Invoke the logo generation container
  */
 async function invokeLogoContainer(
-  container: { fetch: (request: Request) => Promise<Response> },
+  containerBinding: DurableObjectNamespace,
   input: {
     description: string;
     config: z.infer<typeof LogoConfigSchema>;
@@ -115,6 +116,10 @@ async function invokeLogoContainer(
     previousFeedback?: string;
   }
 ): Promise<{ svg: string; iterations: number; reasoning: string }> {
+  // Get a singleton container instance
+  const container = getContainer(containerBinding);
+
+  // Make request to the container's /generate endpoint
   const response = await container.fetch(
     new Request('http://container/generate', {
       method: 'POST',
@@ -141,7 +146,7 @@ export async function chatHandler({
   request: Request;
   env: {
     ANTHROPIC_API_KEY: string;
-    LogoAgentContainer: { fetch: (request: Request) => Promise<Response> };
+    LOGO_AGENT: DurableObjectNamespace;
   };
 }) {
   if (!env.ANTHROPIC_API_KEY) {
@@ -156,7 +161,7 @@ export async function chatHandler({
   // Create the generateLogo tool with server implementation
   const generateLogo = generateLogoDef.server(async (input) => {
     try {
-      const result = await invokeLogoContainer(env.LogoAgentContainer, input);
+      const result = await invokeLogoContainer(env.LOGO_AGENT, input);
       return {
         svg: result.svg,
         iterations: result.iterations,
