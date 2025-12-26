@@ -77,9 +77,52 @@ const generateLogoDef = toolDefinition({
 });
 
 /**
+ * Schema for similar logo results
+ */
+const SimilarLogoSchema = z.object({
+  id: z.string(),
+  score: z.number(),
+  metadata: z.object({
+    logo_id: z.string(),
+    name: z.string().nullable(),
+    description: z.string(),
+    logo_type: z.string(),
+    theme: z.string().nullable(),
+    shape: z.string().nullable(),
+    primary_color: z.string().nullable(),
+    accent_color: z.string().nullable(),
+    text: z.string().nullable(),
+  }),
+});
+
+/**
+ * Tool definition for finding similar logos via RAG
+ */
+const findSimilarLogosDef = toolDefinition({
+  name: 'findSimilarLogos',
+  description:
+    'Search for similar logos in the database to use as inspiration. ' +
+    'Use this tool BEFORE generating a logo to find relevant examples that can inform the design. ' +
+    'This helps create logos that follow proven design patterns.',
+  inputSchema: z.object({
+    query: z
+      .string()
+      .optional()
+      .describe('Natural language description of the desired logo style'),
+    logoType: LogoTypeSchema.optional().describe('Filter by logo type'),
+    theme: LogoThemeSchema.optional().describe('Filter by visual theme'),
+    shape: LogoShapeSchema.optional().describe('Filter by shape'),
+    nResults: z
+      .number()
+      .default(3)
+      .describe('Number of similar logos to return (default 3)'),
+  }),
+});
+
+/**
  * System prompt for the conversational Claude
  */
-const SYSTEM_PROMPT = `You are a helpful logo design assistant. Your role is to help users create professional logos by understanding their needs and using the generateLogo tool.
+const SYSTEM_PROMPT = `You are a helpful logo design assistant. Your role is to help users create professional logos by understanding their needs and using the available tools.
 
 WORKFLOW:
 1. When a user describes a logo they want, gather key information:
@@ -89,20 +132,28 @@ WORKFLOW:
    - Shape preferences
    - Any specific requirements
 
-2. Use the generateLogo tool with the gathered information to create the logo.
+2. BEFORE generating, use findSimilarLogos to search for relevant examples in our database.
+   This provides inspiration and helps create designs that follow proven patterns.
+   - If similar logos are found, mention 1-2 key insights from them
+   - If no similar logos are found, that's fine - proceed with generation
 
-3. After generating, explain your design choices and ask for feedback.
+3. Use the generateLogo tool with the gathered information to create the logo.
+   If you found similar logos, incorporate insights from them into the description.
 
-4. If the user provides feedback, use the generateLogo tool again with the previousFeedback parameter.
+4. After generating, explain your design choices and ask for feedback.
+
+5. If the user provides feedback, use the generateLogo tool again with the previousFeedback parameter.
 
 GUIDELINES:
 - Be conversational and helpful
 - Ask clarifying questions if the request is vague
+- Use findSimilarLogos to research before generating (when relevant)
 - Explain design decisions briefly
 - Suggest improvements based on design principles
 - Always use the generateLogo tool to create logos - never try to describe SVG code directly
+- If the RAG search returns no results, don't mention it - just proceed with generation
 
-Remember: You handle the conversation, and the generateLogo tool handles the actual logo creation in a specialized environment.`;
+Remember: You handle the conversation, findSimilarLogos provides design research, and generateLogo creates the actual logo.`;
 
 /**
  * Invoke the logo generation container
@@ -131,6 +182,67 @@ async function invokeLogoContainer(
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Container error: ${error}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Query the RAG system for similar logos
+ */
+async function querySimilarLogos(
+  containerBinding: DurableObjectNamespace,
+  input: {
+    query?: string;
+    logoType?: string;
+    theme?: string;
+    shape?: string;
+    nResults?: number;
+  }
+): Promise<{
+  success: boolean;
+  results: Array<{
+    id: string;
+    score: number;
+    metadata: {
+      logo_id: string;
+      name: string | null;
+      description: string;
+      logo_type: string;
+      theme: string | null;
+      shape: string | null;
+      primary_color: string | null;
+      accent_color: string | null;
+      text: string | null;
+    };
+  }>;
+  degraded: boolean;
+  error?: string;
+}> {
+  const container = getContainer(containerBinding);
+
+  const response = await container.fetch(
+    new Request('http://container/rag/similar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: input.query,
+        logo_type: input.logoType,
+        theme: input.theme,
+        shape: input.shape,
+        n_results: input.nResults ?? 3,
+      }),
+    })
+  );
+
+  if (!response.ok) {
+    // Return graceful degradation
+    return {
+      success: true,
+      results: [],
+      degraded: true,
+      error: 'RAG query failed',
+    };
   }
 
   return response.json();
@@ -179,6 +291,28 @@ export async function chatHandler({
     }
   });
 
+  // Create the findSimilarLogos tool with server implementation
+  const findSimilarLogos = findSimilarLogosDef.server(async (input) => {
+    try {
+      const result = await querySimilarLogos(env.LOGO_AGENT, input);
+      return {
+        success: result.success,
+        results: result.results,
+        count: result.results.length,
+        degraded: result.degraded,
+      };
+    } catch (error) {
+      // Return empty results on error - graceful degradation
+      return {
+        success: true,
+        results: [],
+        count: 0,
+        degraded: true,
+        error: error instanceof Error ? error.message : 'RAG query failed',
+      };
+    }
+  });
+
   try {
     const stream = chat({
       adapter: anthropicText('claude-sonnet-4-5', {
@@ -186,7 +320,7 @@ export async function chatHandler({
       }),
       messages,
       conversationId,
-      tools: [generateLogo],
+      tools: [generateLogo, findSimilarLogos],
       systemPrompt: SYSTEM_PROMPT,
     });
 

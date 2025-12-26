@@ -7,5 +7,11 @@ declare module 'cloudflare:workers' {
     GITHUB_CLIENT_ID: string;
     GITHUB_CLIENT_SECRET: string;
     ANTHROPIC_API_KEY: string;
+    // ChromaDB Cloud
+    CHROMA_API_TOKEN: string;
+    CHROMA_TENANT: string;
+    CHROMA_DATABASE: string;
+    // Admin API
+    ADMIN_API_KEY: string;
   }
 }

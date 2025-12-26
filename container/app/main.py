@@ -13,11 +13,23 @@ import json
 import tempfile
 import os
 
+from .admin import admin_router, management_router
+from .rag import rag_router
+
 app = FastAPI(
     title="Logo Agent",
-    description="AI-powered SVG logo generation service",
-    version="1.0.0",
+    description="AI-powered SVG logo generation service with RAG support",
+    version="2.0.0",
 )
+
+# Include admin routes for logo ingestion
+app.include_router(admin_router)
+
+# Include admin management routes for CRUD operations
+app.include_router(management_router)
+
+# Include RAG routes for similarity search
+app.include_router(rag_router)
 
 
 class ColorConfig(BaseModel):

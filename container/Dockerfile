@@ -1,8 +1,14 @@
 FROM python:3.12-slim
 
-# Install Node.js for logo generation script
+# Install Node.js and Cairo dependencies for SVG to PNG conversion
 RUN apt-get update && apt-get install -y \
     curl \
+    libcairo2 \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libgdk-pixbuf2.0-dev \
+    libffi-dev \
+    shared-mime-info \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
