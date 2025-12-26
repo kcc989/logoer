@@ -30,7 +30,8 @@ export const logoRoutes = prefix('/logos', [
   }),
 ]);
 
-// Logo serving route (for R2 assets)
-export const logoAssetsRoutes = prefix('/logos/assets', [
+// Logo asset serving - separate prefix to avoid routing conflicts with /:id
+// rwsdk doesn't support wildcard routes in same prefix as dynamic segments
+export const logoAssetsRoutes = prefix('/logo-assets', [
   route('/*', serveLogo),
 ]);

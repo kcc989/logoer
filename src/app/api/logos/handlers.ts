@@ -475,16 +475,24 @@ export async function deleteLogo({
 }
 
 /**
- * Serve a logo SVG from R2
+ * Serve a logo asset from R2 (SVG, PNG, etc.)
+ * Supports both user logos (logos/*) and ingested logos (ingested/*)
  */
 export async function serveLogo({ params }: RequestInfo): Promise<Response> {
-  const path = params['*'];
+  // rwsdk uses $0 for wildcard captures, not *
+  const path = params['$0'];
 
   if (!path) {
     return new Response('Not found', { status: 404 });
   }
 
-  const object = await env.LOGOS_BUCKET.get(`logos/${path}`);
+  // Try the path directly first (for ingested/ paths)
+  let object = await env.LOGOS_BUCKET.get(path);
+
+  // Fall back to logos/ prefix for user logos
+  if (!object) {
+    object = await env.LOGOS_BUCKET.get(`logos/${path}`);
+  }
 
   if (!object) {
     return new Response('Not found', { status: 404 });

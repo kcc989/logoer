@@ -164,7 +164,7 @@ function parseAIResponse(description: string): ImageAnalysis {
  * Serve an uploaded image from R2
  */
 export async function serveUpload({ params }: RequestInfo): Promise<Response> {
-  const path = params['*'];
+  const path = params['$0'];
 
   if (!path) {
     return new Response('Not found', { status: 404 });

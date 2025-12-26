@@ -91,7 +91,9 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
   route('/api/chat', {
     post: async ({ request }) => chatHandler({ request }),
   }),
-  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, logoAssetsRoutes, aiRoutes, uploadRoutes, adminRoutes]),
+  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, aiRoutes, uploadRoutes, adminRoutes]),
+  // Logo assets served outside /api prefix - rwsdk limitation with wildcard + dynamic routes
+  logoAssetsRoutes,
   render(Document, [
     route('/', Home),
     route('/login', Login),

@@ -4,7 +4,8 @@ import type { RequestInfo } from 'rwsdk/worker';
 import { z } from 'zod';
 
 import { ValidationError } from '@/lib/errors';
-import { searchLogos as searchChromaDB } from '@/lib/chromadb-client';
+import { searchLogos as searchChromaDB, storeLogoEmbedding } from '@/lib/chromadb-client';
+import { describeLogo } from '@/lib/logo-describer';
 
 // Schemas
 const bulkIngestSchema = z.object({
@@ -29,6 +30,21 @@ export type IngestMessage = {
   id: string;
   queuedAt: string;
 };
+
+interface ConvertResponse {
+  png: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Get a ready SVG converter container instance.
+ */
+async function getSvgConverterContainer() {
+  const container = getContainer(env.SVG_CONVERTER);
+  await container.startAndWaitForPorts({ ports: [8080] });
+  return container;
+}
 
 /**
  * Get a ready container instance for making requests.
@@ -104,11 +120,13 @@ export async function searchLogos({
   const results = await searchChromaDB(input.data.query, input.data.limit);
 
   // Transform results to match expected format
+  // Use /logo-assets route (outside /api prefix due to rwsdk routing limitation)
   return Response.json({
     results: results.map((r) => ({
       id: r.id,
       name: r.id,
-      svg_url: `https://logos.logoer.dev/ingested/${r.id}.svg`,
+      svg_url: `/logo-assets/ingested/${r.id}.svg`,
+      png_url: `/logo-assets/ingested/${r.id}.png`,
       similarity: 1 - r.distance, // Convert distance to similarity
       ...r.metadata,
     })),
@@ -244,6 +262,12 @@ export async function uploadFile({
 
 /**
  * Upload SVG from a URL.
+ * Uses the same flow as the queue handler:
+ * 1. Fetch SVG from URL
+ * 2. Convert to PNG using SVG converter container
+ * 3. Describe using Claude Vision
+ * 4. Store in ChromaDB
+ * 5. Store in R2
  */
 export async function uploadFromUrl({
   request,
@@ -255,8 +279,16 @@ export async function uploadFromUrl({
     throw new ValidationError(input.error.message);
   }
 
-  // Fetch the SVG from the URL
-  const svgResponse = await fetch(input.data.url);
+  const url = input.data.url;
+
+  // 1. Fetch the SVG from the URL
+  const svgResponse = await fetch(url, {
+    headers: {
+      'User-Agent': 'LogoerBot/1.0 (https://logoer.dev)',
+      Accept: 'image/svg+xml, application/xml, text/xml, */*',
+    },
+  });
+
   if (!svgResponse.ok) {
     return Response.json(
       { error: `Failed to fetch SVG: ${svgResponse.status}` },
@@ -264,28 +296,72 @@ export async function uploadFromUrl({
     );
   }
 
-  const svgContent = await svgResponse.text();
-  const urlPath = new URL(input.data.url).pathname;
-  const name = urlPath.split('/').pop()?.replace('.svg', '') || 'uploaded';
+  const contentType = svgResponse.headers.get('content-type') || '';
+  if (!contentType.includes('svg') && !contentType.includes('xml')) {
+    return Response.json(
+      { error: `URL is not an SVG (content-type: ${contentType})` },
+      { status: 400 }
+    );
+  }
 
-  const container = await getReadyContainer();
-  const response = await container.fetch(
-    new Request('http://container/admin/ingest', {
+  const svg = await svgResponse.text();
+  const id = crypto.randomUUID();
+
+  // 2. Convert SVG to PNG using SVG converter container
+  const svgConverter = await getSvgConverterContainer();
+  const convertResponse = await svgConverter.fetch(
+    new Request('http://container/convert', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Admin-Key': env.ADMIN_API_KEY,
-      },
-      body: JSON.stringify({
-        svg: svgContent,
-        name,
-        source_url: input.data.url,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ svg, width: 512 }),
     })
   );
 
-  const data = await response.json();
-  return Response.json(data, { status: response.status });
+  if (!convertResponse.ok) {
+    const error = await convertResponse.text();
+    return Response.json(
+      { error: `SVG conversion failed: ${error}` },
+      { status: 400 }
+    );
+  }
+
+  const { png, width, height } = (await convertResponse.json()) as ConvertResponse;
+
+  // Decode base64 PNG to buffer
+  const pngBuffer = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+
+  // 3. Describe the logo using Claude Vision
+  const description = await describeLogo(pngBuffer);
+
+  // 4. Store in ChromaDB
+  await storeLogoEmbedding(id, url, description);
+
+  // 5. Store SVG and PNG in R2
+  await Promise.all([
+    env.LOGOS_BUCKET.put(`ingested/${id}.svg`, svg, {
+      httpMetadata: { contentType: 'image/svg+xml' },
+      customMetadata: { sourceUrl: url },
+    }),
+    env.LOGOS_BUCKET.put(`ingested/${id}.png`, pngBuffer, {
+      httpMetadata: { contentType: 'image/png' },
+      customMetadata: {
+        sourceUrl: url,
+        width: String(width),
+        height: String(height),
+        description: description.description,
+        style: description.style,
+        mood: description.mood,
+      },
+    }),
+  ]);
+
+  return Response.json({
+    success: true,
+    id,
+    description: description.description,
+    style: description.style,
+    mood: description.mood,
+  });
 }
 
 /**
