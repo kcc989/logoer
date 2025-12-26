@@ -1,23 +1,52 @@
 import { env } from 'cloudflare:workers';
+import { getContainer, getRandom } from '@cloudflare/containers';
 
 import type { IngestMessage } from './app/api/admin/handlers';
-import { convertSvgToPng } from './lib/svg-to-png';
-import { describeLogo } from './lib/logo-describer';
-import { storeLogoEmbedding } from './lib/chromadb-client';
+
+interface ConvertResponse {
+  png: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Get a ready LogoAgent container instance for making requests.
+ */
+async function getLogoAgentContainer() {
+  const container = getContainer(env.LOGO_AGENT);
+  await container.startAndWaitForPorts({
+    startOptions: {
+      envVars: {
+        ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+      },
+    },
+  });
+  return container;
+}
+
+/**
+ * Get a ready SvgConverter container instance (load balanced across 5 instances).
+ */
+async function getSvgConverterContainer() {
+  const container = await getRandom(env.SVG_CONVERTER, 5);
+  await container.startAndWaitForPorts({ ports: [8080] });
+  return container;
+}
 
 /**
  * Process logo ingestion messages from the queue.
  *
  * For each message:
  * 1. Fetch the SVG from the URL
- * 2. Convert SVG to PNG using resvg-wasm
- * 3. Describe the logo using Claude Vision
- * 4. Store the description in ChromaDB with embeddings
- * 5. Store the PNG in R2 for caching
+ * 2. Send to the container for processing (sanitization, description, embedding)
+ * 3. Store the original SVG in R2
  */
 export async function processLogoIngestion(
   batch: MessageBatch<unknown>
 ): Promise<void> {
+  // Get container once for the batch
+  const container = await getReadyContainer();
+
   for (const message of batch.messages) {
     const body = message.body as IngestMessage;
     const { url, id } = body;
@@ -40,29 +69,30 @@ export async function processLogoIngestion(
 
       const svg = await svgResponse.text();
 
-      // 2. Convert to PNG
-      const pngBuffer = await convertSvgToPng(svg, { width: 512 });
+      // 2. Send to container for processing
+      const response = await container.fetch(
+        new Request('http://container/admin/ingest', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Key': env.ADMIN_API_KEY,
+          },
+          body: JSON.stringify({
+            svg,
+            name: id,
+            source_url: url,
+          }),
+        })
+      );
 
-      // 3. Describe with Claude Vision
-      const description = await describeLogo(pngBuffer);
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`Container ingest failed for ${url}: ${error}`);
+        message.retry();
+        continue;
+      }
 
-      // 4. Store in ChromaDB
-      await storeLogoEmbedding(id, url, description);
-
-      // 5. Store PNG in R2 for caching
-      await env.LOGOS_BUCKET.put(`ingested/${id}.png`, pngBuffer, {
-        httpMetadata: {
-          contentType: 'image/png',
-        },
-        customMetadata: {
-          sourceUrl: url,
-          description: description.description,
-          style: description.style,
-          mood: description.mood,
-        },
-      });
-
-      // Also store the original SVG
+      // 3. Store original SVG in R2
       await env.LOGOS_BUCKET.put(`ingested/${id}.svg`, svg, {
         httpMetadata: {
           contentType: 'image/svg+xml',

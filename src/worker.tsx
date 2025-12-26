@@ -21,6 +21,13 @@ import { Login } from '@/app/pages/Login';
 import { Settings } from '@/app/pages/Settings';
 import { Generator } from '@/app/pages/Generator';
 import { Gallery } from '@/app/pages/Gallery';
+import { Unauthorized } from '@/app/pages/Unauthorized';
+import { AdminLayout } from '@/app/admin/admin-layout';
+import { AdminDashboard } from '@/app/pages/admin/Dashboard';
+import { AdminHistories } from '@/app/pages/admin/Histories';
+import { AdminSearch } from '@/app/pages/admin/Search';
+import { AdminLogos } from '@/app/pages/admin/Logos';
+import { AdminUpload } from '@/app/pages/admin/Upload';
 import type { Session, User } from '@/lib/auth';
 import { createAuth } from '@/lib/auth';
 
@@ -30,6 +37,12 @@ export { RealtimeDurableObject } from 'rwsdk/realtime/durableObject';
 // Logo generation container
 export class LogoAgentContainer extends Container<Env> {
   defaultPort = 8000;
+  sleepAfter = '5m';
+}
+
+// SVG to PNG conversion container
+export class SvgConverterContainer extends Container<Env> {
+  defaultPort = 8080;
   sleepAfter = '5m';
 }
 
@@ -82,9 +95,19 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
   render(Document, [
     route('/', Home),
     route('/login', Login),
+    route('/unauthorized', Unauthorized),
     prefix('/settings', [layout(AppLayout, [route('/', Settings)])]),
     prefix('/generator', [layout(AppLayout, [route('/', Generator)])]),
     prefix('/gallery', [layout(AppLayout, [route('/', Gallery)])]),
+    prefix('/admin', [
+      layout(AdminLayout, [
+        route('/', AdminDashboard),
+        route('/histories', AdminHistories),
+        route('/search', AdminSearch),
+        route('/logos', AdminLogos),
+        route('/upload', AdminUpload),
+      ]),
+    ]),
   ]),
 ]);
 

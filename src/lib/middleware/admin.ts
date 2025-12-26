@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import type { RequestInfo } from 'rwsdk/worker';
 
-import { UnauthorizedError } from '@/lib/errors';
+import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
 
 /**
  * Middleware to require admin API key authentication.
@@ -18,5 +18,19 @@ export function requireAdminApiKey({ request }: RequestInfo) {
 
   if (token !== env.ADMIN_API_KEY) {
     throw new UnauthorizedError('Invalid API key');
+  }
+}
+
+/**
+ * Middleware to require admin role via better-auth.
+ * Checks if the authenticated user has admin role.
+ */
+export function requireAdmin({ ctx }: RequestInfo) {
+  if (!ctx.user) {
+    throw new UnauthorizedError('Authentication required');
+  }
+
+  if (ctx.user.role !== 'admin') {
+    throw new ForbiddenError('Admin access required');
   }
 }

@@ -164,4 +164,82 @@ export const migrations = {
       await db.schema.dropTable('logo').ifExists().execute();
     },
   },
+  '003_admin_plugin': {
+    async up(db) {
+      return [
+        // Add admin plugin fields to user table
+        await db.schema
+          .alterTable('user')
+          .addColumn('role', 'text', (col) => col.defaultTo('user'))
+          .execute(),
+
+        await db.schema
+          .alterTable('user')
+          .addColumn('banned', 'integer', (col) => col.defaultTo(0))
+          .execute(),
+
+        await db.schema
+          .alterTable('user')
+          .addColumn('banReason', 'text')
+          .execute(),
+
+        await db.schema
+          .alterTable('user')
+          .addColumn('banExpires', 'integer')
+          .execute(),
+
+        // Add impersonatedBy field to session table for admin impersonation
+        await db.schema
+          .alterTable('session')
+          .addColumn('impersonatedBy', 'text')
+          .execute(),
+      ];
+    },
+
+    async down(db) {
+      // SQLite doesn't support DROP COLUMN directly, so we'd need to recreate tables
+      // For now, just log a warning - in production, handle this properly
+      console.warn(
+        'Migration 003_admin_plugin down: SQLite does not support DROP COLUMN'
+      );
+    },
+  },
+  '004_generation_history': {
+    async up(db) {
+      return [
+        // generation_history table - stores chat conversation histories
+        await db.schema
+          .createTable('generation_history')
+          .addColumn('id', 'text', (col) => col.primaryKey())
+          .addColumn('userId', 'text', (col) =>
+            col.notNull().references('user.id').onDelete('cascade')
+          )
+          .addColumn('prompt', 'text', (col) => col.notNull())
+          .addColumn('config', 'text') // JSON: LogoConfig
+          .addColumn('messages', 'text') // JSON: ChatMessage[]
+          .addColumn('logoVersionIds', 'text') // JSON: string[]
+          .addColumn('createdAt', 'text', (col) => col.notNull())
+          .addColumn('updatedAt', 'text', (col) => col.notNull())
+          .execute(),
+
+        // Create index on userId for faster lookups
+        await db.schema
+          .createIndex('generation_history_user_id_idx')
+          .on('generation_history')
+          .column('userId')
+          .execute(),
+
+        // Create index on createdAt for sorting
+        await db.schema
+          .createIndex('generation_history_created_at_idx')
+          .on('generation_history')
+          .column('createdAt')
+          .execute(),
+      ];
+    },
+
+    async down(db) {
+      await db.schema.dropTable('generation_history').ifExists().execute();
+    },
+  },
 } satisfies Migrations;

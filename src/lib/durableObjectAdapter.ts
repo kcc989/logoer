@@ -111,7 +111,7 @@ export const rwsdkAdapter = (config: CustomAdapterConfig = {}) => {
       debugLogs: config.debugLogs ?? false,
       supportsJSON: false, // We handle JSON manually due to Kysely auto-parsing
       supportsDates: false, // We serialize dates manually
-      supportsBooleans: true,
+      supportsBooleans: false, // SQLite in Durable Objects stores booleans as integers (0/1)
       supportsNumericIds: false,
     },
     adapter: ({ debugLog: _debugLog }) => {

@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { username } from 'better-auth/plugins';
+import { admin, username } from 'better-auth/plugins';
 
 import { rwsdkAdapter } from './durableObjectAdapter';
 
@@ -42,7 +42,33 @@ export const createAuth = (env: Env) => {
       },
     },
 
-    plugins: [username()],
+    plugins: [
+      username(),
+      admin({
+        defaultRole: 'user',
+        adminRoles: ['admin'],
+      }),
+    ],
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            // Auto-promote admins based on email
+            const email = user.email?.toLowerCase() || '';
+            const isAdmin =
+              email === 'casey.collins@hey.com' ||
+              email.endsWith('@logoer.com');
+
+            return {
+              data: {
+                ...user,
+                role: isAdmin ? 'admin' : 'user',
+              },
+            };
+          },
+        },
+      },
+    },
     // Better Auth automatically creates the required tables:
     // - user (id, email, emailVerified, name, image, createdAt, updatedAt)
     // - session (id, userId, expiresAt, ipAddress, userAgent)
@@ -80,4 +106,8 @@ export type Session = NonNullable<
 
 export type User = typeof auth.$Infer.Session.user & {
   username?: string | null; // Added by username plugin
+  role?: string | null; // Added by admin plugin
+  banned?: boolean | null; // Added by admin plugin
+  banReason?: string | null; // Added by admin plugin
+  banExpires?: Date | null; // Added by admin plugin
 };
