@@ -1,11 +1,13 @@
 import { env } from 'cloudflare:workers';
 import { ChromaClient } from 'chromadb';
+import { CloudflareWorkerAIEmbeddingFunction } from '@chroma-core/cloudflare-worker-ai';
 
 import type { LogoDescription } from './logo-describer';
 
 const COLLECTION_NAME = 'logos';
 
 let clientInstance: ChromaClient | null = null;
+let embeddingFunction: CloudflareWorkerAIEmbeddingFunction | null = null;
 
 /**
  * Get or create the ChromaDB client instance.
@@ -25,6 +27,19 @@ function getClient(): ChromaClient {
   return clientInstance;
 }
 
+/**
+ * Get the Cloudflare Worker AI embedding function.
+ */
+function getEmbeddingFunction(): CloudflareWorkerAIEmbeddingFunction {
+  if (!embeddingFunction) {
+    embeddingFunction = new CloudflareWorkerAIEmbeddingFunction({
+      ai: env.AI,
+      model: '@cf/baai/bge-base-en-v1.5',
+    });
+  }
+  return embeddingFunction;
+}
+
 export type LogoEmbeddingMetadata = {
   sourceUrl: string;
   description: string;
@@ -35,24 +50,6 @@ export type LogoEmbeddingMetadata = {
   industry: string;
   ingestedAt: string;
 };
-
-/**
- * Generate embeddings using Workers AI.
- */
-async function generateEmbedding(text: string): Promise<number[]> {
-  const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', {
-    text: [text],
-  });
-
-  // Workers AI returns { shape: number[], data: number[][] }
-  const output = result as { shape: number[]; data: number[][] };
-
-  if (!output.data?.[0]) {
-    throw new Error('Failed to generate embedding');
-  }
-
-  return output.data[0];
-}
 
 /**
  * Store a logo description in ChromaDB with embeddings.
@@ -67,8 +64,11 @@ export async function storeLogoEmbedding(
   description: LogoDescription
 ): Promise<void> {
   const client = getClient();
+  const ef = getEmbeddingFunction();
+
   const collection = await client.getOrCreateCollection({
     name: COLLECTION_NAME,
+    embeddingFunction: ef,
   });
 
   // Create a rich text representation for embedding
@@ -83,8 +83,6 @@ export async function storeLogoEmbedding(
     .filter(Boolean)
     .join('. ');
 
-  const embedding = await generateEmbedding(textForEmbedding);
-
   const metadata: LogoEmbeddingMetadata = {
     sourceUrl,
     description: description.description,
@@ -98,7 +96,6 @@ export async function storeLogoEmbedding(
 
   await collection.add({
     ids: [id],
-    embeddings: [embedding],
     metadatas: [metadata],
     documents: [textForEmbedding],
   });
@@ -123,14 +120,15 @@ export async function searchLogos(
   }>
 > {
   const client = getClient();
+  const ef = getEmbeddingFunction();
+
   const collection = await client.getOrCreateCollection({
     name: COLLECTION_NAME,
+    embeddingFunction: ef,
   });
 
-  const queryEmbedding = await generateEmbedding(query);
-
   const results = await collection.query({
-    queryEmbeddings: [queryEmbedding],
+    queryTexts: [query],
     nResults: limit,
   });
 

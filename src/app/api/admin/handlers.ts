@@ -4,6 +4,7 @@ import type { RequestInfo } from 'rwsdk/worker';
 import { z } from 'zod';
 
 import { ValidationError } from '@/lib/errors';
+import { searchLogos as searchChromaDB } from '@/lib/chromadb-client';
 
 // Schemas
 const bulkIngestSchema = z.object({
@@ -87,6 +88,7 @@ export async function bulkIngest({
 
 /**
  * Search the vector index for similar logos.
+ * Uses direct ChromaDB Cloud REST API (no container needed).
  */
 export async function searchLogos({
   request,
@@ -98,23 +100,19 @@ export async function searchLogos({
     throw new ValidationError(input.error.message);
   }
 
-  const container = await getReadyContainer();
-  const response = await container.fetch(
-    new Request('http://container/rag/similar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Admin-Key': env.ADMIN_API_KEY,
-      },
-      body: JSON.stringify({
-        query: input.data.query,
-        limit: input.data.limit,
-      }),
-    })
-  );
+  // Direct ChromaDB search (no container needed)
+  const results = await searchChromaDB(input.data.query, input.data.limit);
 
-  const data = await response.json();
-  return Response.json(data);
+  // Transform results to match expected format
+  return Response.json({
+    results: results.map((r) => ({
+      id: r.id,
+      name: r.id,
+      svg_url: `https://logos.logoer.dev/ingested/${r.id}.svg`,
+      similarity: 1 - r.distance, // Convert distance to similarity
+      ...r.metadata,
+    })),
+  });
 }
 
 /**
