@@ -5,6 +5,7 @@ import { layout, prefix, render, route } from 'rwsdk/router';
 import { defineApp, type RequestInfo } from 'rwsdk/worker';
 
 import { userRoutes, avatarRoutes } from './app/api/users/routes';
+import { chatHandler } from './app/api/chat/handler';
 import { AppLayout } from './app/app-layout';
 import { getSidebarCollapsed } from './lib/sidebar';
 import { getTheme, serializeTheme } from './lib/theme';
@@ -69,6 +70,9 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
     return response;
   }),
   realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
+  route('/api/chat', {
+    POST: async ({ request }) => chatHandler({ request, env }),
+  }),
   prefix('/api', [userRoutes, avatarRoutes]),
   render(Document, [
     route('/', Home),
