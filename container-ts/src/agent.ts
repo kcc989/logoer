@@ -10,6 +10,14 @@ import type {
 } from "./types.js";
 import { LogoConfigSchema } from "./types.js";
 import { generateSvg, validateSvg, analyzeLogo } from "./tools/svg-generator.js";
+import {
+  evaluateConceptFidelity,
+  evaluateTechnicalQuality,
+  evaluateScalability,
+  evaluateProductionReadiness,
+  runAllJudges,
+  JudgeInputSchema,
+} from "./tools/judges.js";
 import { SYSTEM_PROMPT } from "./prompts.js";
 
 interface AgentCallbacks {
@@ -166,6 +174,379 @@ const logoToolsServer = createSdkMcpServer({
         };
       }
     ),
+
+    // ========================================================================
+    // Judge Evaluator Tools
+    // ========================================================================
+
+    tool(
+      "judge_concept_fidelity",
+      "Evaluate how well an SVG logo matches the brand identity and concept. Checks brand alignment, color accuracy, typography, and style consistency. Returns detailed scores and feedback.",
+      {
+        svg: z.string().describe("The SVG string to evaluate"),
+        brandInfo: z
+          .object({
+            brandName: z.string(),
+            industry: z.string(),
+            targetAudience: z.string(),
+            brandPersonality: z.array(z.string()).optional(),
+            stylePreferences: z.array(z.string()).optional(),
+            colorPreferences: z.array(z.string()).optional(),
+          })
+          .describe("Brand discovery information"),
+        conceptInfo: z
+          .object({
+            description: z.string().optional(),
+            rationale: z.string().optional(),
+            styleAttributes: z
+              .object({
+                type: z.string().optional(),
+                shapes: z.array(z.string()).optional(),
+                colors: z.array(z.string()).optional(),
+                mood: z.string().optional(),
+              })
+              .optional(),
+          })
+          .optional()
+          .describe("Selected concept details"),
+        config: z
+          .object({
+            type: z.string().optional(),
+            text: z.string().optional(),
+            colors: z
+              .object({
+                primary: z.string(),
+                accent: z.string(),
+                background: z.string().optional(),
+              })
+              .optional(),
+            typography: z
+              .object({
+                fontFamily: z.string(),
+                fontSize: z.number(),
+                fontWeight: z.union([z.string(), z.number()]),
+                letterSpacing: z.number(),
+              })
+              .optional(),
+            width: z.number(),
+            height: z.number(),
+          })
+          .optional()
+          .describe("Logo configuration"),
+        iterationNumber: z.number().default(1).describe("Current iteration number"),
+      },
+      async (args) => {
+        try {
+          const input = JudgeInputSchema.parse(args);
+          const result = await evaluateConceptFidelity(input);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error evaluating concept fidelity: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    ),
+
+    tool(
+      "judge_technical_quality",
+      "Evaluate the technical quality of an SVG logo. Checks validity, optimization, element usage, accessibility, and dimension accuracy. Returns detailed scores and feedback.",
+      {
+        svg: z.string().describe("The SVG string to evaluate"),
+        brandInfo: z
+          .object({
+            brandName: z.string(),
+            industry: z.string(),
+            targetAudience: z.string(),
+            brandPersonality: z.array(z.string()).optional(),
+            stylePreferences: z.array(z.string()).optional(),
+            colorPreferences: z.array(z.string()).optional(),
+          })
+          .describe("Brand discovery information"),
+        config: z
+          .object({
+            type: z.string().optional(),
+            text: z.string().optional(),
+            colors: z
+              .object({
+                primary: z.string(),
+                accent: z.string(),
+                background: z.string().optional(),
+              })
+              .optional(),
+            typography: z
+              .object({
+                fontFamily: z.string(),
+                fontSize: z.number(),
+                fontWeight: z.union([z.string(), z.number()]),
+                letterSpacing: z.number(),
+              })
+              .optional(),
+            width: z.number(),
+            height: z.number(),
+          })
+          .optional()
+          .describe("Logo configuration"),
+        iterationNumber: z.number().default(1).describe("Current iteration number"),
+      },
+      async (args) => {
+        try {
+          const input = JudgeInputSchema.parse(args);
+          const result = await evaluateTechnicalQuality(input);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error evaluating technical quality: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    ),
+
+    tool(
+      "judge_scalability",
+      "Evaluate how well a logo SVG scales across different sizes. Checks readability at small sizes, appearance at medium sizes, quality at large sizes, stroke scaling, and aspect ratio. Returns detailed scores and feedback.",
+      {
+        svg: z.string().describe("The SVG string to evaluate"),
+        brandInfo: z
+          .object({
+            brandName: z.string(),
+            industry: z.string(),
+            targetAudience: z.string(),
+            brandPersonality: z.array(z.string()).optional(),
+            stylePreferences: z.array(z.string()).optional(),
+            colorPreferences: z.array(z.string()).optional(),
+          })
+          .describe("Brand discovery information"),
+        config: z
+          .object({
+            type: z.string().optional(),
+            text: z.string().optional(),
+            colors: z
+              .object({
+                primary: z.string(),
+                accent: z.string(),
+                background: z.string().optional(),
+              })
+              .optional(),
+            typography: z
+              .object({
+                fontFamily: z.string(),
+                fontSize: z.number(),
+                fontWeight: z.union([z.string(), z.number()]),
+                letterSpacing: z.number(),
+              })
+              .optional(),
+            width: z.number(),
+            height: z.number(),
+          })
+          .optional()
+          .describe("Logo configuration"),
+        iterationNumber: z.number().default(1).describe("Current iteration number"),
+      },
+      async (args) => {
+        try {
+          const input = JudgeInputSchema.parse(args);
+          const result = await evaluateScalability(input);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error evaluating scalability: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    ),
+
+    tool(
+      "judge_production_readiness",
+      "Evaluate whether a logo SVG is ready for production use. Checks raster exportability, font availability, color format, self-containment, and file size. Returns detailed scores and feedback.",
+      {
+        svg: z.string().describe("The SVG string to evaluate"),
+        brandInfo: z
+          .object({
+            brandName: z.string(),
+            industry: z.string(),
+            targetAudience: z.string(),
+            brandPersonality: z.array(z.string()).optional(),
+            stylePreferences: z.array(z.string()).optional(),
+            colorPreferences: z.array(z.string()).optional(),
+          })
+          .describe("Brand discovery information"),
+        config: z
+          .object({
+            type: z.string().optional(),
+            text: z.string().optional(),
+            colors: z
+              .object({
+                primary: z.string(),
+                accent: z.string(),
+                background: z.string().optional(),
+              })
+              .optional(),
+            typography: z
+              .object({
+                fontFamily: z.string(),
+                fontSize: z.number(),
+                fontWeight: z.union([z.string(), z.number()]),
+                letterSpacing: z.number(),
+              })
+              .optional(),
+            width: z.number(),
+            height: z.number(),
+          })
+          .optional()
+          .describe("Logo configuration"),
+        iterationNumber: z.number().default(1).describe("Current iteration number"),
+      },
+      async (args) => {
+        try {
+          const input = JudgeInputSchema.parse(args);
+          const result = await evaluateProductionReadiness(input);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error evaluating production readiness: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    ),
+
+    tool(
+      "judge_all",
+      "Run all four judge evaluators (concept fidelity, technical quality, scalability, production readiness) in parallel and return aggregated results with pass/fail decision.",
+      {
+        svg: z.string().describe("The SVG string to evaluate"),
+        brandInfo: z
+          .object({
+            brandName: z.string(),
+            industry: z.string(),
+            targetAudience: z.string(),
+            brandPersonality: z.array(z.string()).optional(),
+            stylePreferences: z.array(z.string()).optional(),
+            colorPreferences: z.array(z.string()).optional(),
+          })
+          .describe("Brand discovery information"),
+        conceptInfo: z
+          .object({
+            description: z.string().optional(),
+            rationale: z.string().optional(),
+            styleAttributes: z
+              .object({
+                type: z.string().optional(),
+                shapes: z.array(z.string()).optional(),
+                colors: z.array(z.string()).optional(),
+                mood: z.string().optional(),
+              })
+              .optional(),
+          })
+          .optional()
+          .describe("Selected concept details"),
+        config: z
+          .object({
+            type: z.string().optional(),
+            text: z.string().optional(),
+            colors: z
+              .object({
+                primary: z.string(),
+                accent: z.string(),
+                background: z.string().optional(),
+              })
+              .optional(),
+            typography: z
+              .object({
+                fontFamily: z.string(),
+                fontSize: z.number(),
+                fontWeight: z.union([z.string(), z.number()]),
+                letterSpacing: z.number(),
+              })
+              .optional(),
+            width: z.number(),
+            height: z.number(),
+          })
+          .optional()
+          .describe("Logo configuration"),
+        previousFeedback: z
+          .array(z.string())
+          .optional()
+          .describe("Previous iteration feedback to check if addressed"),
+        iterationNumber: z.number().default(1).describe("Current iteration number"),
+      },
+      async (args) => {
+        try {
+          const input = JudgeInputSchema.parse(args);
+          const result = await runAllJudges(input);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error running all judges: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    ),
   ],
 });
 
@@ -204,6 +585,11 @@ export async function runLogoAgent(
           "mcp__logo-tools__validate_svg",
           "mcp__logo-tools__analyze_logo",
           "mcp__logo-tools__refine_svg",
+          "mcp__logo-tools__judge_concept_fidelity",
+          "mcp__logo-tools__judge_technical_quality",
+          "mcp__logo-tools__judge_scalability",
+          "mcp__logo-tools__judge_production_readiness",
+          "mcp__logo-tools__judge_all",
         ],
         maxTurns: maxIterations * 2, // Allow for tool calls and responses
         permissionMode: "bypassPermissions", // Container is sandboxed
