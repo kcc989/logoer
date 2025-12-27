@@ -26,6 +26,12 @@
       "instance_type": "standard-1",
     },
     {
+      "class_name": "LogoAgentTsContainer",
+      "image": "./container-ts/Dockerfile",
+      "max_instances": 10,
+      "instance_type": "standard-1",
+    },
+    {
       "class_name": "SvgConverterContainer",
       "image": "./svg-converter/Dockerfile",
       "max_instances": 5,
@@ -88,6 +94,10 @@
         "class_name": "LogoAgentContainer",
       },
       {
+        "name": "LOGO_AGENT_TS",
+        "class_name": "LogoAgentTsContainer",
+      },
+      {
         "name": "SVG_CONVERTER",
         "class_name": "SvgConverterContainer",
       },
@@ -118,6 +128,10 @@
     {
       "tag": "v5",
       "new_classes": ["AgentSession"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["LogoAgentTsContainer"],
     },
   ],
 

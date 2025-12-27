@@ -8,6 +8,7 @@ import { userRoutes, avatarRoutes } from './app/api/users/routes';
 import { logoRoutes, logoAssetsRoutes } from './app/api/logos/routes';
 import { aiRoutes, uploadRoutes } from './app/api/ai/routes';
 import { adminRoutes } from './app/api/admin/routes';
+import { logoAgentRoutes } from './app/api/logo-agent/routes';
 import { chatHandler } from './app/api/chat/handler';
 import { processLogoIngestion } from './queue-handler';
 import { AppLayout } from './app/app-layout';
@@ -35,9 +36,15 @@ export { Database } from '@/db/centralDbDurableObject';
 export { RealtimeDurableObject } from 'rwsdk/realtime/durableObject';
 export { AgentSession } from '@/lib/agent';
 
-// Logo generation container
+// Logo generation container (Python - for RAG/ChromaDB)
 export class LogoAgentContainer extends Container<Env> {
   defaultPort = 8000;
+  sleepAfter = '5m';
+}
+
+// Logo generation container (TypeScript - for Claude Agent SDK)
+export class LogoAgentTsContainer extends Container<Env> {
+  defaultPort = 8080;
   sleepAfter = '5m';
 }
 
@@ -92,7 +99,7 @@ const app = defineApp<RequestInfo<Record<string, string>, AppContext>>([
   route('/api/chat', {
     post: async ({ request }) => chatHandler({ request }),
   }),
-  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, aiRoutes, uploadRoutes, adminRoutes]),
+  prefix('/api', [userRoutes, avatarRoutes, logoRoutes, aiRoutes, uploadRoutes, adminRoutes, logoAgentRoutes]),
   // Logo assets served outside /api prefix - rwsdk limitation with wildcard + dynamic routes
   logoAssetsRoutes,
   render(Document, [
