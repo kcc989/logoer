@@ -1,6 +1,12 @@
-import { query, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+/**
+ * Logo Generation Agent
+ *
+ * Uses Claude Agent SDK with subagents for parallel judge evaluation.
+ * Direct function calls for SVG generation (no MCP wrapper overhead).
+ */
+
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage, SDKAssistantMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
 import type {
   GenerateRequest,
   GenerateResponse,
@@ -10,15 +16,17 @@ import type {
 } from "./types.js";
 import { LogoConfigSchema } from "./types.js";
 import { generateSvg, validateSvg, analyzeLogo } from "./tools/svg-generator.js";
+import { SYSTEM_PROMPT, buildJudgeContext } from "./prompts.js";
 import {
-  evaluateConceptFidelity,
-  evaluateTechnicalQuality,
-  evaluateScalability,
-  evaluateProductionReadiness,
-  runAllJudges,
-  JudgeInputSchema,
-} from "./tools/judges.js";
-import { SYSTEM_PROMPT } from "./prompts.js";
+  judgeAgents,
+  JUDGE_WEIGHTS,
+  OVERALL_PASS_THRESHOLD,
+  CONCEPT_FIDELITY_THRESHOLD,
+  TECHNICAL_QUALITY_THRESHOLD,
+  SCALABILITY_THRESHOLD,
+  PRODUCTION_READINESS_THRESHOLD,
+} from "./agents/index.js";
+import type { SingleJudgeEvaluation, AggregatedEvaluation } from "./agents/index.js";
 
 interface AgentCallbacks {
   onMessage?: (message: AgentMessage) => void;
@@ -35,521 +43,139 @@ function isResultMessage(message: SDKMessage): message is SDKResultMessage {
   return message.type === "result";
 }
 
-// Create the custom MCP server with logo tools
-const logoToolsServer = createSdkMcpServer({
-  name: "logo-tools",
-  version: "1.0.0",
-  tools: [
-    tool(
-      "generate_svg",
-      "Generate an SVG logo based on the provided configuration. Returns the SVG string.",
-      {
-        config: z
-          .object({
-            type: z.string().describe("Logo type: wordmark, lettermark, abstract, etc."),
-            text: z.string().describe("Brand text to display"),
-            tagline: z.string().optional().describe("Optional tagline"),
-            shape: z.string().describe("Shape: circle, hexagon, triangle, etc."),
-            theme: z.string().describe("Theme: modern, minimal, bold, etc."),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .describe("Color palette"),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .describe("Typography settings"),
-            width: z.number().describe("SVG width"),
-            height: z.number().describe("SVG height"),
-          })
-          .describe("Logo configuration"),
-        customCode: z
-          .string()
-          .optional()
-          .describe(
-            "Optional custom Paper.js code to execute for advanced patterns"
-          ),
-      },
-      async (args) => {
-        try {
-          const config = LogoConfigSchema.parse(args.config);
-          const svg = await generateSvg(config, args.customCode);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: svg,
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error generating SVG: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
+/**
+ * Thresholds for each judge type
+ */
+const PASS_THRESHOLDS: Record<string, number> = {
+  concept_fidelity: CONCEPT_FIDELITY_THRESHOLD,
+  technical_quality: TECHNICAL_QUALITY_THRESHOLD,
+  scalability: SCALABILITY_THRESHOLD,
+  production_readiness: PRODUCTION_READINESS_THRESHOLD,
+};
 
-    tool(
-      "validate_svg",
-      "Validate that an SVG string is well-formed and renderable. Returns validation results.",
-      {
-        svg: z.string().describe("The SVG string to validate"),
-      },
-      async (args) => {
-        const result = validateSvg(args.svg);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-    ),
+/**
+ * Parse judge evaluation from response text.
+ */
+function parseJudgeEvaluation(
+  judgeType: string,
+  responseText: string
+): SingleJudgeEvaluation {
+  try {
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("Could not parse JSON from response");
+    }
 
-    tool(
-      "analyze_logo",
-      "Analyze a logo SVG against design principles and the original configuration. Returns quality score and suggestions.",
-      {
-        svg: z.string().describe("The SVG string to analyze"),
-        config: z
-          .object({
-            type: z.string(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-              })
-              .optional(),
-          })
-          .describe("Original configuration to compare against"),
-      },
-      async (args) => {
-        const result = analyzeLogo(args.svg, args.config as Partial<LogoConfig>);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-    ),
+    const data = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-    tool(
-      "refine_svg",
-      "Apply specific refinements to an existing SVG. Use this for targeted improvements.",
-      {
-        svg: z.string().describe("The current SVG to refine"),
-        refinements: z
-          .array(z.string())
-          .describe("List of specific refinements to apply"),
-      },
-      async (args) => {
-        // For now, return the original SVG - refinement logic to be implemented
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Refinement requested: ${args.refinements.join(", ")}. Implement using generate_svg with adjusted parameters.`,
-            },
-          ],
-        };
-      }
-    ),
+    // Calculate score from criteria
+    const criteriaKeys = Object.keys(data).filter(
+      (k) => typeof data[k] === "object" && data[k] !== null && "score" in (data[k] as object)
+    );
 
-    // ========================================================================
-    // Judge Evaluator Tools
-    // ========================================================================
+    const criteria: Record<string, { score: number; reasoning: string; issues: string[]; suggestions: string[] }> = {};
+    let totalScore = 0;
 
-    tool(
-      "judge_concept_fidelity",
-      "Evaluate how well an SVG logo matches the brand identity and concept. Checks brand alignment, color accuracy, typography, and style consistency. Returns detailed scores and feedback.",
-      {
-        svg: z.string().describe("The SVG string to evaluate"),
-        brandInfo: z
-          .object({
-            brandName: z.string(),
-            industry: z.string(),
-            targetAudience: z.string(),
-            brandPersonality: z.array(z.string()).optional(),
-            stylePreferences: z.array(z.string()).optional(),
-            colorPreferences: z.array(z.string()).optional(),
-          })
-          .describe("Brand discovery information"),
-        conceptInfo: z
-          .object({
-            description: z.string().optional(),
-            rationale: z.string().optional(),
-            styleAttributes: z
-              .object({
-                type: z.string().optional(),
-                shapes: z.array(z.string()).optional(),
-                colors: z.array(z.string()).optional(),
-                mood: z.string().optional(),
-              })
-              .optional(),
-          })
-          .optional()
-          .describe("Selected concept details"),
-        config: z
-          .object({
-            type: z.string().optional(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .optional(),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .optional(),
-            width: z.number(),
-            height: z.number(),
-          })
-          .optional()
-          .describe("Logo configuration"),
-        iterationNumber: z.number().default(1).describe("Current iteration number"),
-      },
-      async (args) => {
-        try {
-          const input = JudgeInputSchema.parse(args);
-          const result = await evaluateConceptFidelity(input);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error evaluating concept fidelity: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
+    for (const key of criteriaKeys) {
+      const criterion = data[key] as Record<string, unknown>;
+      criteria[key] = {
+        score: typeof criterion.score === "number" ? criterion.score : 0,
+        reasoning: typeof criterion.reasoning === "string" ? criterion.reasoning : "",
+        issues: Array.isArray(criterion.issues) ? criterion.issues : [],
+        suggestions: Array.isArray(criterion.suggestions) ? criterion.suggestions : [],
+      };
+      totalScore += criteria[key].score;
+    }
 
-    tool(
-      "judge_technical_quality",
-      "Evaluate the technical quality of an SVG logo. Checks validity, optimization, element usage, accessibility, and dimension accuracy. Returns detailed scores and feedback.",
-      {
-        svg: z.string().describe("The SVG string to evaluate"),
-        brandInfo: z
-          .object({
-            brandName: z.string(),
-            industry: z.string(),
-            targetAudience: z.string(),
-            brandPersonality: z.array(z.string()).optional(),
-            stylePreferences: z.array(z.string()).optional(),
-            colorPreferences: z.array(z.string()).optional(),
-          })
-          .describe("Brand discovery information"),
-        config: z
-          .object({
-            type: z.string().optional(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .optional(),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .optional(),
-            width: z.number(),
-            height: z.number(),
-          })
-          .optional()
-          .describe("Logo configuration"),
-        iterationNumber: z.number().default(1).describe("Current iteration number"),
-      },
-      async (args) => {
-        try {
-          const input = JudgeInputSchema.parse(args);
-          const result = await evaluateTechnicalQuality(input);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error evaluating technical quality: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
+    const score = criteriaKeys.length > 0 ? Math.round((totalScore / criteriaKeys.length) * 10) / 10 : 0;
+    const threshold = PASS_THRESHOLDS[judgeType] || 7.0;
+    const criticalIssues = Array.isArray(data.criticalIssues) ? (data.criticalIssues as string[]) : [];
+    const allSuggestions = Object.values(criteria).flatMap((c) => c.suggestions);
 
-    tool(
-      "judge_scalability",
-      "Evaluate how well a logo SVG scales across different sizes. Checks readability at small sizes, appearance at medium sizes, quality at large sizes, stroke scaling, and aspect ratio. Returns detailed scores and feedback.",
-      {
-        svg: z.string().describe("The SVG string to evaluate"),
-        brandInfo: z
-          .object({
-            brandName: z.string(),
-            industry: z.string(),
-            targetAudience: z.string(),
-            brandPersonality: z.array(z.string()).optional(),
-            stylePreferences: z.array(z.string()).optional(),
-            colorPreferences: z.array(z.string()).optional(),
-          })
-          .describe("Brand discovery information"),
-        config: z
-          .object({
-            type: z.string().optional(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .optional(),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .optional(),
-            width: z.number(),
-            height: z.number(),
-          })
-          .optional()
-          .describe("Logo configuration"),
-        iterationNumber: z.number().default(1).describe("Current iteration number"),
-      },
-      async (args) => {
-        try {
-          const input = JudgeInputSchema.parse(args);
-          const result = await evaluateScalability(input);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error evaluating scalability: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
+    return {
+      judgeType,
+      passed: score >= threshold && criticalIssues.length === 0,
+      score,
+      criteria: criteria as Record<string, { score: number; maxScore: number; reasoning: string; issues: string[]; suggestions: string[] }>,
+      reasoning: typeof data.overallReasoning === "string" ? data.overallReasoning : "Evaluation complete",
+      criticalIssues,
+      suggestions: [...new Set(allSuggestions)],
+      evaluatedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      judgeType,
+      passed: false,
+      score: 0,
+      criteria: {},
+      reasoning: `Evaluation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      criticalIssues: ["Evaluation could not be completed"],
+      suggestions: [],
+      evaluatedAt: new Date().toISOString(),
+    };
+  }
+}
 
-    tool(
-      "judge_production_readiness",
-      "Evaluate whether a logo SVG is ready for production use. Checks raster exportability, font availability, color format, self-containment, and file size. Returns detailed scores and feedback.",
-      {
-        svg: z.string().describe("The SVG string to evaluate"),
-        brandInfo: z
-          .object({
-            brandName: z.string(),
-            industry: z.string(),
-            targetAudience: z.string(),
-            brandPersonality: z.array(z.string()).optional(),
-            stylePreferences: z.array(z.string()).optional(),
-            colorPreferences: z.array(z.string()).optional(),
-          })
-          .describe("Brand discovery information"),
-        config: z
-          .object({
-            type: z.string().optional(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .optional(),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .optional(),
-            width: z.number(),
-            height: z.number(),
-          })
-          .optional()
-          .describe("Logo configuration"),
-        iterationNumber: z.number().default(1).describe("Current iteration number"),
-      },
-      async (args) => {
-        try {
-          const input = JudgeInputSchema.parse(args);
-          const result = await evaluateProductionReadiness(input);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error evaluating production readiness: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
+/**
+ * Aggregate multiple judge evaluations into a single result.
+ */
+function aggregateEvaluations(evaluations: SingleJudgeEvaluation[]): AggregatedEvaluation {
+  // Calculate weighted overall score
+  let weightedSum = 0;
+  let totalWeight = 0;
 
-    tool(
-      "judge_all",
-      "Run all four judge evaluators (concept fidelity, technical quality, scalability, production readiness) in parallel and return aggregated results with pass/fail decision.",
-      {
-        svg: z.string().describe("The SVG string to evaluate"),
-        brandInfo: z
-          .object({
-            brandName: z.string(),
-            industry: z.string(),
-            targetAudience: z.string(),
-            brandPersonality: z.array(z.string()).optional(),
-            stylePreferences: z.array(z.string()).optional(),
-            colorPreferences: z.array(z.string()).optional(),
-          })
-          .describe("Brand discovery information"),
-        conceptInfo: z
-          .object({
-            description: z.string().optional(),
-            rationale: z.string().optional(),
-            styleAttributes: z
-              .object({
-                type: z.string().optional(),
-                shapes: z.array(z.string()).optional(),
-                colors: z.array(z.string()).optional(),
-                mood: z.string().optional(),
-              })
-              .optional(),
-          })
-          .optional()
-          .describe("Selected concept details"),
-        config: z
-          .object({
-            type: z.string().optional(),
-            text: z.string().optional(),
-            colors: z
-              .object({
-                primary: z.string(),
-                accent: z.string(),
-                background: z.string().optional(),
-              })
-              .optional(),
-            typography: z
-              .object({
-                fontFamily: z.string(),
-                fontSize: z.number(),
-                fontWeight: z.union([z.string(), z.number()]),
-                letterSpacing: z.number(),
-              })
-              .optional(),
-            width: z.number(),
-            height: z.number(),
-          })
-          .optional()
-          .describe("Logo configuration"),
-        previousFeedback: z
-          .array(z.string())
-          .optional()
-          .describe("Previous iteration feedback to check if addressed"),
-        iterationNumber: z.number().default(1).describe("Current iteration number"),
-      },
-      async (args) => {
-        try {
-          const input = JudgeInputSchema.parse(args);
-          const result = await runAllJudges(input);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error running all judges: ${error instanceof Error ? error.message : "Unknown error"}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    ),
-  ],
-});
+  for (const evaluation of evaluations) {
+    const weight = JUDGE_WEIGHTS[evaluation.judgeType] || 0;
+    weightedSum += evaluation.score * weight;
+    totalWeight += weight;
+  }
 
+  const overallScore = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+
+  // Collect all critical issues
+  const criticalIssues = evaluations.flatMap((e) => e.criticalIssues);
+
+  // Collect and prioritize suggestions
+  const allSuggestions = evaluations.flatMap((e) =>
+    e.suggestions.map((s) => ({ suggestion: s, score: e.score }))
+  );
+  allSuggestions.sort((a, b) => a.score - b.score);
+  const prioritizedSuggestions = [...new Set(allSuggestions.map((s) => s.suggestion))].slice(0, 10);
+
+  // Determine which judges failed
+  const failedJudges = evaluations.filter((e) => !e.passed).map((e) => e.judgeType);
+
+  // Overall pass only if all judges pass and no critical issues
+  const passed =
+    failedJudges.length === 0 &&
+    criticalIssues.length === 0 &&
+    overallScore >= OVERALL_PASS_THRESHOLD;
+
+  // Generate summary
+  let summary: string;
+  if (passed) {
+    summary = `Logo passed all evaluations with an overall score of ${overallScore}/10.`;
+  } else if (failedJudges.length > 0) {
+    summary = `Logo failed ${failedJudges.length} judge(s): ${failedJudges.join(", ")}. Overall score: ${overallScore}/10.`;
+  } else {
+    summary = `Logo has ${criticalIssues.length} critical issue(s) that must be addressed. Overall score: ${overallScore}/10.`;
+  }
+
+  return {
+    passed,
+    overallScore,
+    judgeResults: evaluations,
+    criticalIssues,
+    prioritizedSuggestions,
+    summary,
+    failedJudges,
+    aggregatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Run the logo generation agent with subagent-based evaluation.
+ */
 export async function runLogoAgent(
   request: GenerateRequest,
   callbacks: AgentCallbacks
@@ -577,21 +203,11 @@ export async function runLogoAgent(
       options: {
         model: "claude-sonnet-4-5",
         systemPrompt: SYSTEM_PROMPT,
-        mcpServers: {
-          "logo-tools": logoToolsServer,
-        },
-        allowedTools: [
-          "mcp__logo-tools__generate_svg",
-          "mcp__logo-tools__validate_svg",
-          "mcp__logo-tools__analyze_logo",
-          "mcp__logo-tools__refine_svg",
-          "mcp__logo-tools__judge_concept_fidelity",
-          "mcp__logo-tools__judge_technical_quality",
-          "mcp__logo-tools__judge_scalability",
-          "mcp__logo-tools__judge_production_readiness",
-          "mcp__logo-tools__judge_all",
-        ],
-        maxTurns: maxIterations * 2, // Allow for tool calls and responses
+        // Configure judge subagents
+        agents: judgeAgents,
+        // Allow Task tool for spawning subagents
+        allowedTools: ["Task", "Read"],
+        maxTurns: maxIterations * 3, // Allow for generation + evaluation turns
         permissionMode: "bypassPermissions", // Container is sandboxed
       },
     });
@@ -603,37 +219,28 @@ export async function runLogoAgent(
       if (isAssistantMessage(message)) {
         // Extract reasoning from assistant messages
         const content = message.message.content;
-        if (typeof content === "string") {
-          reasoningParts.push(content);
-          callbacks.onMessage?.({
-            type: "text",
-            content: content,
-            timestamp: Date.now(),
-          });
-        } else if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === "text") {
-              reasoningParts.push(block.text);
-              callbacks.onMessage?.({
-                type: "text",
-                content: block.text,
-                timestamp: Date.now(),
-              });
-            } else if (block.type === "tool_use") {
-              callbacks.onMessage?.({
-                type: "tool_call",
-                content: `Calling ${block.name}`,
-                toolName: block.name,
-                timestamp: Date.now(),
-              });
+        // Content is always an array of content blocks in the SDK
+        for (const block of content) {
+          if (block.type === "text") {
+            reasoningParts.push(block.text);
+            callbacks.onMessage?.({
+              type: "text",
+              content: block.text,
+              timestamp: Date.now(),
+            });
 
-              // Check tool result in the input for SVG content
-              const inputStr = JSON.stringify(block.input);
-              if (inputStr.includes("<svg")) {
-                finalSvg = extractSvg(inputStr);
-                callbacks.onProgress?.(finalSvg, iterations);
-              }
+            // Check for SVG in text
+            if (block.text.includes("<svg")) {
+              finalSvg = extractSvg(block.text);
+              callbacks.onProgress?.(finalSvg, iterations);
             }
+          } else if (block.type === "tool_use") {
+            callbacks.onMessage?.({
+              type: "tool_call",
+              content: `Spawning ${block.name}`,
+              toolName: block.name,
+              timestamp: Date.now(),
+            });
           }
         }
 
@@ -647,7 +254,7 @@ export async function runLogoAgent(
       }
 
       if (isResultMessage(message)) {
-        // Result messages contain the final result
+        // Result messages contain subagent results
         if (message.subtype === "success" && message.result) {
           // Check if the result contains SVG
           if (message.result.includes("<svg")) {
@@ -688,6 +295,9 @@ export async function runLogoAgent(
   }
 }
 
+/**
+ * Build the prompt for the logo generation agent.
+ */
 function buildAgentPrompt(
   prompt: string,
   config?: Partial<LogoConfig> | undefined,
@@ -716,16 +326,19 @@ function buildAgentPrompt(
 
   parts.push(
     "\nWorkflow:",
-    "1. Use generate_svg to create the initial logo",
-    "2. Use validate_svg to ensure it's well-formed",
-    "3. Use analyze_logo to evaluate quality",
-    "4. If quality score is below 7, iterate with improvements",
-    "5. Return the final SVG once satisfied with quality"
+    "1. Generate an SVG logo following the logo-design skill guidelines",
+    "2. Spawn all 4 judge subagents in parallel using Task tool",
+    "3. Wait for all judges to complete and aggregate results",
+    "4. If any judge fails, iterate with improvements",
+    "5. Return the final SVG once all judges pass (or max iterations reached)"
   );
 
   return parts.join("\n");
 }
 
+/**
+ * Extract SVG from text content.
+ */
 function extractSvg(text: string): string {
   const start = text.indexOf("<svg");
   const end = text.indexOf("</svg>") + 6;
@@ -734,3 +347,8 @@ function extractSvg(text: string): string {
   }
   return "";
 }
+
+// Re-export utility functions for direct usage
+export { generateSvg, validateSvg, analyzeLogo };
+export { parseJudgeEvaluation, aggregateEvaluations };
+export type { SingleJudgeEvaluation, AggregatedEvaluation };

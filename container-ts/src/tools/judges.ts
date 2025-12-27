@@ -1,8 +1,17 @@
 /**
- * Judge Evaluator Tools
+ * Judge Evaluator Functions (Direct API)
  *
- * AI-powered evaluation tools for assessing logos at each phase.
- * Each judge evaluates specific criteria and returns structured feedback.
+ * Pure functions for logo evaluation using direct Anthropic API calls.
+ * These serve as a fallback/testing alternative to the subagent-based
+ * evaluation in src/agents/.
+ *
+ * Primary workflow uses subagents (src/agents/*-judge.ts) spawned via
+ * the Agent SDK's Task tool for parallel evaluation.
+ *
+ * These functions can be used for:
+ * - Testing evaluation logic without the full Agent SDK
+ * - Direct API calls when subagents aren't available
+ * - Programmatic evaluation from other services
  */
 
 import Anthropic from "@anthropic-ai/sdk";
